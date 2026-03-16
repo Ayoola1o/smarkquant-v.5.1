@@ -1,0 +1,21 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies required for Jesse (and TA-Lib if needed)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    curl \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Common Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy current directory
+COPY . .
+
+# Expose API port
+EXPOSE 8000

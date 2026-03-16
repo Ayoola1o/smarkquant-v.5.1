@@ -1,0 +1,39 @@
+services:
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
+  - type: web
+    name: smarkquant-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    disk:
+      name: smarkquant-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false
+      - key: DB_PATH
+        value: /data/market_data.db
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+
+  # ── Next.js Frontend ────────────────────────────────────────────────────────
+  - type: web
+    name: smarkquant-frontend
+    runtime: node
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: BACKEND_URL
+        fromService:
+          name: smarkquant-backend
+          type: web
+          property: url
+      - key: NODE_VERSION
+        value: "20"

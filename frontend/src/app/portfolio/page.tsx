@@ -13,7 +13,7 @@ import {
 } from "recharts";
 
 // ── constants ──────────────────────────────────────────────────────────────
-const BASE_EQUITY = 8_567_897_678;
+const BASE_EQUITY = 0;
 const ALLOCATION_COLORS = ["#f59e0b", "#3b82f6", "#10b981", "#8b5cf6", "#ef4444", "#06b6d4"];
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -125,6 +125,15 @@ export default function PortfolioPage() {
       setSessions(s);
       if (acc && !acc.detail) setAlpaca(acc);
 
+      // compute real total assets from session balances:
+      // use finishing_balance if set, otherwise fall back to starting_balance + pnl_value
+      const realTotalAssets = s.reduce((sum, x) => {
+        const finishing = x.finishing_balance || 0;
+        if (finishing > 0) return sum + finishing;
+        return sum + (x.starting_balance || 0) + (x.pnl_value || 0);
+      }, 0);
+      if (realTotalAssets > 0) setEquity(realTotalAssets);
+
       // seed day pnl from REAL today's sessions only — no fake fallback
       const today = new Date().toISOString().slice(0, 10);
       const todayPnl = s
@@ -155,8 +164,8 @@ export default function PortfolioPage() {
   useEffect(() => {
     if (activeBots === 0) return;           // freeze when no bots are running
     const id = setInterval(() => {
-      const tick = (Math.random() - 0.35) * 280_000;
-      setEquity(prev => Math.max(prev + tick, BASE_EQUITY * 0.99));
+      const tick = (Math.random() - 0.35) * 1_000;
+      setEquity(prev => Math.max(prev + tick, prev * 0.99));
       dayPnlRef.current += tick;
       setDayPnl(dayPnlRef.current);
       setLastUpdate(new Date());

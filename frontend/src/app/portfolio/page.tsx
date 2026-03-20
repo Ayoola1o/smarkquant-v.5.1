@@ -11,7 +11,8 @@ import {
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart as RePieChart, Pie, Cell, Legend, LineChart, Line
+  PieChart as RePieChart, Pie, Cell, Legend, LineChart, Line,
+  ReferenceLine
 } from "recharts";
 
 // ── constants ──────────────────────────────────────────────────────────────
@@ -160,8 +161,14 @@ export default function PortfolioPage() {
   const fetchTransactions = () => {
     setTxLoading(true);
     fetch("/api/transactions").then(r => r.json()).then(d => {
-      setTransactions(d.transactions || []);
-      setTxSummary(d.summary || null);
+      const txList = d.transactions || [];
+      const txSum = d.summary || null;
+      setTransactions(txList);
+      setTxSummary(txSum);
+      // recalculate displayed equity so withdrawals/deposits immediately show
+      const netTxUsd = txSum?.net_usd ?? 0;
+      const base = alpaca?.portfolio_value ?? alpaca?.equity ?? 0;
+      if (base > 0) setEquity(base + netTxUsd);
     }).catch(() => {}).finally(() => setTxLoading(false));
   };
   const [dayPnl, setDayPnl] = useState(0);
@@ -176,22 +183,39 @@ export default function PortfolioPage() {
     Promise.all([
       fetch("/api/history").then(r => r.json()).catch(() => ({ sessions: [] })),
       fetch("/api/alpaca/account?paper=true").then(r => r.json()).catch(() => null),
-    ]).then(([hist, acc]) => {
+      fetch("/api/transactions").then(r => r.json()).catch(() => ({ transactions: [], summary: null })),
+    ]).then(([hist, acc, txData]) => {
       const s: Session[] = hist.sessions || [];
       setSessions(s);
-      if (acc && !acc.detail) setAlpaca(acc);
 
-      // compute real total assets ONLY from live/paper sessions — backtests
-      // reuse the same simulated capital across many runs so summing them
-      // inflates the figure massively. Live sessions represent real money.
-      const livePaper = s.filter(x => x.session_type === "live" || x.session_type === "paper");
-      const realTotalAssets = livePaper.reduce((sum, x) => {
-        const cur = x.currency || "USD";
-        const finishing = x.finishing_balance || 0;
-        if (finishing > 0) return sum + toUsd(finishing, cur);
-        return sum + toUsd((x.starting_balance || 0) + (x.pnl_value || 0), cur);
-      }, 0);
-      if (realTotalAssets > 0) setEquity(realTotalAssets);
+      // load transactions up front so the balance is always adjusted
+      const txList = txData.transactions || [];
+      const txSum = txData.summary || null;
+      setTransactions(txList);
+      setTxSummary(txSum);
+      const netTxUsd = txSum?.net_usd ?? 0; // deposits − withdrawals in USD
+
+      let baseEquity = 0;
+      if (acc && !acc.detail) {
+        setAlpaca(acc);
+        // ── UNIT FIX: Alpaca portfolio_value is the authoritative real/paper
+        //    account balance. Bot sessions compound to absurd simulated numbers;
+        //    Alpaca tells us the true position (e.g. $100K paper account).
+        baseEquity = acc.portfolio_value ?? acc.equity ?? 0;
+      } else {
+        // No Alpaca: fall back to sum of live/paper session finishing balances
+        const livePaper = s.filter(x => x.session_type === "live" || x.session_type === "paper");
+        baseEquity = livePaper.reduce((sum, x) => {
+          const cur = x.currency || "USD";
+          const finishing = x.finishing_balance || 0;
+          if (finishing > 0) return sum + toUsd(finishing, cur);
+          return sum + toUsd((x.starting_balance || 0) + (x.pnl_value || 0), cur);
+        }, 0);
+      }
+
+      // Deposits ADD to the balance; withdrawals SUBTRACT — reflects actual fund flow
+      const adjustedEquity = baseEquity + netTxUsd;
+      if (adjustedEquity > 0) setEquity(adjustedEquity);
 
       // seed day pnl from REAL today's sessions only — converted to USD
       const today = new Date().toISOString().slice(0, 10);
@@ -204,7 +228,7 @@ export default function PortfolioPage() {
     });
   }, []);
 
-  // ── fetch transactions when wallet tab is opened ─────────────────────────
+  // ── refresh wallet tab + recalc balance when transactions change ──────────
   useEffect(() => { if (tab === "wallet") fetchTransactions(); }, [tab]);
 
   // ── poll bot status every 5s ─────────────────────────────────────────────
@@ -297,12 +321,41 @@ export default function PortfolioPage() {
     scaled: Math.round(BASE_EQUITY * (v / (rawCurve[rawCurve.length - 1] || 1))),
   }));
 
-  // ── cumulative PnL curve from sessions sorted by date ───────────────────
+  // ── cumulative PnL + fund-flow curve (sessions + deposits/withdrawals) ───
   const sortedSessions = [...sessions].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  // merge session events and completed transaction events, sorted chronologically
+  const completedTxEvents = transactions
+    .filter(tx => tx.status === "completed")
+    .map(tx => ({
+      date: tx.completed_at || tx.created_at,
+      kind: tx.type as "deposit" | "withdraw",
+      delta: tx.type === "deposit" ? toUsd(tx.amount, tx.currency) : -toUsd(tx.amount, tx.currency),
+      label: `${tx.type === "deposit" ? "Deposit" : "Withdrawal"}: ${tx.bank_name}`,
+    }));
+
+  const sessionEvents = sortedSessions.map(s => ({
+    date: s.created_at,
+    kind: "session" as const,
+    delta: toUsd(s.pnl_value || 0, s.currency),
+    label: s.strategy,
+    session: s,
+  }));
+
+  const allEvents = [...sessionEvents, ...completedTxEvents]
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
   let cumPnl = 0;
-  const cumCurve = sortedSessions.map((s, i) => {
-    cumPnl += s.pnl_value || 0;
-    return { label: `#${i + 1}`, cumPnl: Math.round(cumPnl), pnl: Math.round(s.pnl_value || 0), strategy: s.strategy };
+  const cumCurve = allEvents.map((evt, i) => {
+    cumPnl += evt.delta;
+    return {
+      label: `#${i + 1}`,
+      cumPnl: Math.round(cumPnl),
+      pnl: Math.round(evt.delta),
+      strategy: evt.label,
+      isDeposit: evt.kind === "deposit",
+      isWithdraw: evt.kind === "withdraw",
+    };
   });
 
   // ── per-session drawdown chart (from sessions that have max_drawdown) ────
@@ -392,12 +445,13 @@ export default function PortfolioPage() {
         <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border border-amber-500/20 rounded-2xl p-8">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div>
-              <p className="text-slate-400 text-xs mb-2 flex items-center gap-1">
+              <p className="text-slate-400 text-xs mb-2 flex items-center gap-2">
                 <Globe size={12} className="text-amber-400" />
-                {equity > 0 ? "LIVE / PAPER ASSETS (USD)" : "PORTFOLIO SUMMARY"}
+                TOTAL FUND BALANCE (USD)
+                {alpaca && <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">Alpaca</span>}
               </p>
               <div className="text-5xl font-black text-amber-400 tracking-tight mb-2">
-                {equity > 0 ? <AnimatedNumber value={equity} /> : <span className="text-slate-500 text-3xl">No live sessions</span>}
+                {equity > 0 ? <AnimatedNumber value={equity} /> : <span className="text-slate-500 text-3xl">No account</span>}
               </div>
               {equity > 0 && (
                 <div className={`flex items-center gap-1 text-base font-semibold ${dayPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
@@ -405,18 +459,29 @@ export default function PortfolioPage() {
                   {fmtC(Math.abs(dayPnl))} ({dayPnlPct >= 0 ? "+" : ""}{fmt(dayPnlPct, 3)}%) today
                 </div>
               )}
+              {/* Balance breakdown */}
               <div className="mt-3 space-y-1">
-                <p className="text-slate-500 text-xs flex justify-between">
-                  <span>Live / Paper PnL</span>
-                  <span className={livePaperPnl >= 0 ? "text-emerald-400 font-semibold" : "text-red-400 font-semibold"}>{fmtC(livePaperPnl)}</span>
-                </p>
-                <p className="text-slate-500 text-xs flex justify-between">
-                  <span>Simulated (Backtest) PnL</span>
-                  <span className={backtestPnl >= 0 ? "text-blue-400 font-semibold" : "text-red-400 font-semibold"}>{fmtC(backtestPnl)}</span>
-                </p>
+                {alpaca && (
+                  <p className="text-slate-500 text-xs flex justify-between">
+                    <span>Trading Account</span>
+                    <span className="text-slate-300 font-semibold">{fmtC(alpaca.portfolio_value)}</span>
+                  </p>
+                )}
+                {(txSummary?.total_deposited_usd ?? 0) > 0 && (
+                  <p className="text-slate-500 text-xs flex justify-between">
+                    <span className="flex items-center gap-1"><ArrowDownToLine size={9} className="text-emerald-400" /> Deposits</span>
+                    <span className="text-emerald-400 font-semibold">+{fmtC(txSummary?.total_deposited_usd ?? 0)}</span>
+                  </p>
+                )}
+                {(txSummary?.total_withdrawn_usd ?? 0) > 0 && (
+                  <p className="text-slate-500 text-xs flex justify-between">
+                    <span className="flex items-center gap-1"><ArrowUpFromLine size={9} className="text-red-400" /> Withdrawals</span>
+                    <span className="text-red-400 font-semibold">-{fmtC(txSummary?.total_withdrawn_usd ?? 0)}</span>
+                  </p>
+                )}
                 <p className="text-slate-600 text-xs flex justify-between border-t border-slate-800 pt-1 mt-1">
-                  <span>All sessions combined</span>
-                  <span className={totalPnl >= 0 ? "text-slate-300 font-semibold" : "text-red-400 font-semibold"}>{fmtC(totalPnl)}</span>
+                  <span>Backtest PnL (sim)</span>
+                  <span className={backtestPnl >= 0 ? "text-blue-400 font-semibold" : "text-red-400 font-semibold"}>{fmtC(backtestPnl)}</span>
                 </p>
               </div>
             </div>
@@ -424,8 +489,8 @@ export default function PortfolioPage() {
               {[
                 { label: "Available Cash", value: fmtC(availableCash), sub: alpaca ? "Alpaca" : "Est.", color: "text-blue-400" },
                 { label: "Buying Power", value: fmtC(buyingPower), sub: alpaca ? "Alpaca" : "Est.", color: "text-purple-400" },
+                { label: "Net Deposits", value: fmtC(txSummary?.net_usd ?? 0), sub: `${(txSummary?.pending_count ?? 0) > 0 ? `${txSummary?.pending_count} pending` : "All settled"}`, color: (txSummary?.net_usd ?? 0) >= 0 ? "text-emerald-400" : "text-red-400" },
                 { label: "Positions Value", value: fmtC(marginUsed), sub: alpaca ? "Long + Short" : "Est.", color: "text-orange-400" },
-                { label: "Live P&L", value: fmtC(livePaperPnl), sub: `${liveSessions.length} sessions`, color: livePaperPnl >= 0 ? "text-emerald-400" : "text-red-400" },
               ].map(m => (
                 <div key={m.label} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
                   <p className="text-slate-400 text-xs mb-1">{m.label}</p>
@@ -472,11 +537,17 @@ export default function PortfolioPage() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="text-lg font-bold flex items-center gap-2">
-                    <TrendingUp size={18} className="text-amber-400" /> Cumulative P&L — All Sessions
+                    <TrendingUp size={18} className="text-amber-400" /> Fund Equity Curve
                   </h2>
-                  <p className="text-slate-500 text-xs mt-0.5">Running total profit from your {sessions.length} real sessions in the database</p>
+                  <p className="text-slate-500 text-xs mt-0.5">
+                    Cumulative P&L from {sessions.length} sessions
+                    {completedTxEvents.length > 0 && <span> · <span className="text-emerald-400">{completedTxEvents.filter(e => e.kind === "deposit").length} deposit</span> / <span className="text-red-400">{completedTxEvents.filter(e => e.kind === "withdraw").length} withdrawal</span> events</span>}
+                  </p>
                 </div>
-                <span className={`font-bold text-lg ${totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtC(totalPnl)}</span>
+                <div className="text-right">
+                  <span className={`font-bold text-lg ${cumPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtC(cumPnl)}</span>
+                  {completedTxEvents.length > 0 && <p className="text-[10px] text-slate-500">incl. fund flows</p>}
+                </div>
               </div>
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={cumCurve}>
@@ -489,10 +560,35 @@ export default function PortfolioPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} interval={Math.floor(cumCurve.length / 10)} />
                   <YAxis tickFormatter={v => fmtC(v)} tick={{ fill: "#64748b", fontSize: 11 }} tickLine={false} width={80} />
-                  <Tooltip content={<ChartTip moneyKey={["cumPnl", "pnl"]} />} />
-                  <Area type="monotone" dataKey="cumPnl" name="Cumulative PnL" stroke="#10b981" strokeWidth={2} fill="url(#cumGrad)" />
+                  <Tooltip content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div className="bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs">
+                        <p className="text-slate-400 mb-1">{d.strategy}</p>
+                        {d.isDeposit && <p className="text-emerald-400 font-bold">↓ Deposit {fmtC(d.pnl)}</p>}
+                        {d.isWithdraw && <p className="text-red-400 font-bold">↑ Withdrawal {fmtC(Math.abs(d.pnl))}</p>}
+                        {!d.isDeposit && !d.isWithdraw && <p className="text-slate-300">PnL this session: {fmtC(d.pnl)}</p>}
+                        <p className="text-amber-400 mt-0.5">Cumulative: {fmtC(d.cumPnl)}</p>
+                      </div>
+                    );
+                  }} />
+                  <Area type="monotone" dataKey="cumPnl" name="Cumulative PnL" stroke="#10b981" strokeWidth={2} fill="url(#cumGrad)"
+                    dot={(props: any) => {
+                      const d = props.payload;
+                      if (d.isDeposit) return <circle key={props.index} cx={props.cx} cy={props.cy} r={5} fill="#10b981" stroke="#064e3b" strokeWidth={2} />;
+                      if (d.isWithdraw) return <circle key={props.index} cx={props.cx} cy={props.cy} r={5} fill="#ef4444" stroke="#7f1d1d" strokeWidth={2} />;
+                      return <g key={props.index} />;
+                    }}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
+              {completedTxEvents.length > 0 && (
+                <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-500">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Deposit event</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> Withdrawal event</span>
+                </div>
+              )}
             </div>
 
             {/* Best backtest equity curve */}

@@ -244,8 +244,8 @@ def generate_signals(df: pd.DataFrame, detected: dict) -> tuple[pd.Series, pd.Se
     raw_long = combine(long_conditions)
     raw_short = combine(short_conditions)
 
-    long_sig = raw_long & (~raw_long.shift(1).fillna(False))
-    short_sig = raw_short & (~raw_short.shift(1).fillna(False))
+    long_sig = raw_long.shift(1).fillna(False) & (~raw_long.shift(2).fillna(False))
+    short_sig = raw_short.shift(1).fillna(False) & (~raw_short.shift(2).fillna(False))
 
     allow_short = detected.get("allow_short", True)
     if not allow_short:
@@ -265,11 +265,11 @@ def _cloud_scappler_signals(df: pd.DataFrame):
     bbw = ind_bbw(df["close"], 20)
     atr = ind_atr(df, 14)
 
-    bull = (conv > base) & (span_a > span_b) & (df["close"] > ema200) & (adx > 25) & (bbw < 8)
-    bear = (conv < base) & (span_a < span_b) & (df["close"] < ema200) & (adx > 25) & (bbw < 8)
+    bull = (conv > base) & (span_a > span_b) & (df["close"] > ema200) & (adx > 50) & (bbw < 5)
+    bear = (conv < base) & (span_a < span_b) & (df["close"] < ema200) & (adx > 50) & (bbw < 5)
 
-    long_sig = bull & (~bull.shift(1).fillna(False))
-    short_sig = bear & (~bear.shift(1).fillna(False))
+    long_sig = bull.shift(1).fillna(False) & (~bull.shift(2).fillna(False))
+    short_sig = bear.shift(1).fillna(False) & (~bear.shift(2).fillna(False))
     return long_sig.fillna(False), short_sig.fillna(False), atr
 
 

@@ -244,7 +244,7 @@ def simulate(df: pd.DataFrame, long_signal: pd.Series, short_signal: pd.Series,
         if position > 0:
             current_equity = capital + position * price
         elif position < 0:
-            current_equity = capital + abs(position) * (2 * entry_price - price)
+            current_equity = capital + abs(position) * (entry_price - price)
         else:
             current_equity = capital
         equity_curve.append(round(max(current_equity, 0), 2))

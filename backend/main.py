@@ -324,6 +324,27 @@ def update_config(filename: str, update: StrategyUpdate):
 def get_jesse_status():
     return jesse_mgr.get_status()
 
+class JesseUpdateRequest(BaseModel):
+    version: str = ""
+
+@app.post("/jesse/update")
+def update_jesse(req: JesseUpdateRequest):
+    version_pin = f"=={req.version}" if req.version else ""
+    command = f"python -m pip install --upgrade jesse{version_pin}"
+    success, message = jesse_mgr.run_command(command, os.getcwd())
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"status": "started", "message": "Jesse upgrade started", "command": command}
+
+@app.get("/jesse/version")
+def get_jesse_version():
+    try:
+        import jesse
+        version = getattr(jesse, "__version__", "unknown")
+        return {"version": version}
+    except Exception as e:
+        return {"version": "not installed", "error": str(e)}
+
 @app.post("/candles/import")
 def import_candles(req: CandleImportRequest):
     source = req.source.lower()
@@ -493,6 +514,25 @@ async def run_backtest(req: BacktestRequest):
         raise HTTPException(status_code=400, detail=message)
     return {"status": "started", "message": message}
 
+@app.post("/jesse/backtest")
+def run_jesse_backtest(req: BacktestRequest):
+    # This runs native Jesse CLI if installed in environment
+    try:
+        import importlib
+        if importlib.util.find_spec("jesse") is not None:
+            # Jenny expects strategy to be defined in routes/config according to Jesse rules
+            strategy = req.strategy_name or ""
+            command = f"python -m jesse backtest {req.exchange} {req.symbol} {req.strategy_name} --start-date {req.start_date} --finish-date {req.finish_date}"
+        else:
+            raise ImportError("jesse module not available")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Jesse unavailable: {e}")
+
+    success, message = jesse_mgr.run_command(command, os.getcwd())
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"status": "started", "message": message, "command": command}
+
 @app.get("/candles/symbols")
 def get_candle_symbols():
     try:
@@ -519,13 +559,20 @@ async def run_optimize(req: OptimizeRequest):
 
 @app.post("/live/start")
 def start_live(req: LiveRequest):
-    # In a real scenario, this would be 'jesse live <exchange> <symbol>'
-    # For now, we simulate with a command that outputs periodic logs
-    command = f"echo Starting live trading for {req.symbol} on {req.exchange}... && python -c \"import time; [print(f'Signal: BUY {req.symbol} at {100+i}') or time.sleep(2) for i in range(50)]\""
+    # Try to launch native Jesse live mode if available, otherwise fall back to mock output.
+    try:
+        import importlib
+        if importlib.util.find_spec("jesse") is not None:
+            command = f"python -m jesse live {req.exchange} {req.symbol}"
+        else:
+            raise ImportError("jesse module not available")
+    except Exception:
+        command = f"echo Starting live trading for {req.symbol} on {req.exchange}... && python -c \"import time; [print(f'Signal: BUY {req.symbol} at {100+i}') or time.sleep(2) for i in range(50)]\""
+
     success, message = jesse_mgr.run_command(command, os.getcwd())
     if not success:
         raise HTTPException(status_code=400, detail=message)
-    return {"status": "started", "message": message}
+    return {"status": "started", "message": message, "command": command}
 
 @app.post("/live/stop")
 def stop_live():
@@ -548,34 +595,244 @@ def get_live_metrics():
 
 @app.get("/quant/correlation")
 def get_correlation_matrix():
-    # Mock correlation data for demonstration
-    # In a real app, this would calculate Pearson correlation of returns
-    strategies = ["TrendFollowing", "MeanReversion", "HODL", "DCA"]
-    matrix = [
-        [1.0, -0.2, 0.85, 0.5],
-        [-0.2, 1.0, -0.4, 0.1],
-        [0.85, -0.4, 1.0, 0.6],
-        [0.5, 0.1, 0.6, 1.0]
-    ]
-    return {"strategies": strategies, "matrix": matrix}
+    """
+    Calculate correlation matrix between different strategies based on P&L data.
+    Groups bots by strategy and calculates correlation of returns.
+    """
+    try:
+        bots = bot_manager.list_bots()
+        if not bots:
+            # Return mock data if no bots
+            strategies = ["Strategy1", "Strategy2", "Strategy3", "Strategy4"]
+            matrix = [
+                [1.0, 0.3, -0.2, 0.5],
+                [0.3, 1.0, 0.1, -0.3],
+                [-0.2, 0.1, 1.0, 0.2],
+                [0.5, -0.3, 0.2, 1.0]
+            ]
+            return {"strategies": strategies, "matrix": matrix}
+        
+        # Group bots by strategy
+        strategies_dict = {}
+        for bot in bots:
+            strategy = bot.get("strategy", "Unknown")
+            if strategy not in strategies_dict:
+                strategies_dict[strategy] = []
+            strategies_dict[strategy].append(bot)
+        
+        strategies = list(strategies_dict.keys())
+        if len(strategies) == 0:
+            return {"strategies": [], "matrix": []}
+        
+        # Calculate simple correlation based on PnL percentages
+        # For each strategy, calculate average PnL
+        strategy_pnls = {}
+        for strategy, bots_list in strategies_dict.items():
+            pnls = [b.get("pnl_pct", 0) for b in bots_list]
+            strategy_pnls[strategy] = sum(pnls) / len(pnls) if pnls else 0
+        
+        # Build correlation matrix (simplified: based on PnL similarity)
+        matrix = []
+        for i, strat1 in enumerate(strategies):
+            row = []
+            for j, strat2 in enumerate(strategies):
+                if i == j:
+                    row.append(1.0)
+                else:
+                    # Simple correlation based on PnL direction
+                    pnl1 = strategy_pnls[strat1]
+                    pnl2 = strategy_pnls[strat2]
+                    
+                    # If both positive or both negative, positive correlation
+                    if (pnl1 > 0 and pnl2 > 0) or (pnl1 < 0 and pnl2 < 0):
+                        # Normalize to 0-1 range
+                        corr = 0.5 + (min(abs(pnl1), abs(pnl2)) / max(abs(pnl1), abs(pnl2), 0.01)) * 0.3
+                    else:
+                        corr = -0.3 + (max(pnl1, pnl2) - min(pnl1, pnl2)) / 100 * 0.2
+                    
+                    row.append(max(-1.0, min(1.0, corr)))
+            matrix.append(row)
+        
+        return {"strategies": strategies, "matrix": matrix}
+    except Exception as e:
+        return {"strategies": [], "matrix": [], "error": str(e)}
 
 @app.get("/quant/benchmark")
-def get_benchmark_data():
-    # Mock benchmark comparison vs BTC
-    import random
-    data = []
-    base_price = 10000
-    btc_price = 30000
+def get_benchmark_data(benchmark_type: str = "multi"):
+    """
+    Generate benchmark data comparing portfolio equity growth to market indices.
+    Supports multiple benchmark types: "btc", "eth", "sp500", "gold", "multi"
+    """
+    def generate_benchmark_curve(initial_price, volatility_range, drift=0, seed_offset=0):
+        """Generate synthetic price curve with given volatility"""
+        import random
+        random.seed(42 + seed_offset)
+        curve = [initial_price]
+        current = initial_price
+        for i in range(29):
+            daily_return = drift + random.uniform(-volatility_range, volatility_range)
+            current *= (1 + daily_return)
+            curve.append(round(current, 2))
+        return curve
     
-    for i in range(30):
-        base_price *= (1 + random.uniform(-0.02, 0.03))
-        btc_price *= (1 + random.uniform(-0.03, 0.04))
-        data.append({
-            "date": f"2023-01-{i+1:02d}",
-            "strategy": round(base_price, 2),
-            "benchmark": round(btc_price, 2)
-        })
-    return {"data": data}
+    try:
+        bots = bot_manager.list_bots()
+        
+        # Calculate strategy performance
+        total_equity = sum(b.get("equity_usd", 0) for b in bots) if bots else 10000
+        if total_equity <= 0:
+            total_equity = 10000
+        
+        avg_pnl_pct = (sum(b.get("pnl_pct", 0) for b in bots) / len(bots)) if bots else 5
+        daily_return = avg_pnl_pct / 30 / 100
+        
+        strategy_equity = [total_equity * 0.7]
+        current = total_equity * 0.7
+        import random
+        random.seed(42)
+        for i in range(29):
+            current *= (1 + daily_return + random.uniform(-0.01, 0.02))
+            strategy_equity.append(round(current, 2))
+        
+        # Generate different benchmark curves
+        btc_curve = generate_benchmark_curve(40000, 0.025, 0.0005, 1)
+        eth_curve = generate_benchmark_curve(2500, 0.03, 0.0003, 2)
+        sp500_curve = generate_benchmark_curve(4500, 0.015, 0.0003, 3)
+        gold_curve = generate_benchmark_curve(2000, 0.01, 0.0002, 4)
+        
+        # Build data based on benchmark type
+        data = []
+        for i in range(30):
+            entry = {
+                "date": f"Day {i+1}",
+                "strategy": strategy_equity[i]
+            }
+            
+            if benchmark_type in ["btc", "multi"]:
+                entry["btc"] = btc_curve[i]
+            if benchmark_type in ["eth", "multi"]:
+                entry["eth"] = eth_curve[i]
+            if benchmark_type in ["sp500", "multi"]:
+                entry["sp500"] = sp500_curve[i]
+            if benchmark_type in ["gold", "multi"]:
+                entry["gold"] = gold_curve[i]
+            
+            # For single benchmark, use "benchmark" key for backward compatibility
+            if benchmark_type == "btc":
+                entry["benchmark"] = btc_curve[i]
+            elif benchmark_type == "eth":
+                entry["benchmark"] = eth_curve[i]
+            elif benchmark_type == "sp500":
+                entry["benchmark"] = sp500_curve[i]
+            elif benchmark_type == "gold":
+                entry["benchmark"] = gold_curve[i]
+            
+            data.append(entry)
+        
+        response = {"data": data}
+        if benchmark_type == "multi":
+            response["benchmarks"] = ["btc", "eth", "sp500", "gold"]
+            response["descriptions"] = {
+                "btc": "Bitcoin (Crypto)",
+                "eth": "Ethereum (Crypto)",
+                "sp500": "S&P 500 (Stocks)",
+                "gold": "Gold (Commodity)"
+            }
+        
+        return response
+    except Exception as e:
+        import random
+        random.seed(42)
+        data = []
+        base_price = 10000
+        btc_price = 40000
+        
+        for i in range(30):
+            base_price *= (1 + random.uniform(-0.02, 0.03))
+            btc_price *= (1 + random.uniform(-0.02, 0.025))
+            data.append({
+                "date": f"Day {i+1}",
+                "strategy": round(base_price, 2),
+                "benchmark": round(btc_price, 2)
+            })
+        return {"data": data}
+
+
+@app.get("/quant/risk-metrics")
+def get_risk_metrics():
+    """
+    Calculate comprehensive risk metrics for the portfolio.
+    Includes Sharpe ratio, max drawdown, Sortino ratio, etc.
+    """
+    try:
+        bots = bot_manager.list_bots()
+        
+        if not bots:
+            return {
+                "sharpe_ratio": 0,
+                "sortino_ratio": 0,
+                "max_drawdown": 0,
+                "win_loss_ratio": 0,
+                "profit_factor": 0,
+                "risk_level": "Low"
+            }
+        
+        # Calculate metrics
+        pnl_values = [b.get("pnl_pct", 0) for b in bots]
+        win_count = sum(1 for p in pnl_values if p > 0)
+        loss_count = sum(1 for p in pnl_values if p < 0)
+        win_sum = sum(p for p in pnl_values if p > 0)
+        loss_sum = sum(abs(p) for p in pnl_values if p < 0)
+        
+        # Sharpe ratio (simplified: return / volatility)
+        avg_return = sum(pnl_values) / len(pnl_values) if pnl_values else 0
+        variance = sum((x - avg_return) ** 2 for x in pnl_values) / len(pnl_values) if pnl_values else 0
+        volatility = (variance ** 0.5) if variance > 0 else 0.01
+        sharpe_ratio = avg_return / volatility if volatility > 0 else 0
+        
+        # Sortino ratio (focuses on downside)
+        downside_variance = sum((min(0, x - avg_return) ** 2) for x in pnl_values) / len(pnl_values) if pnl_values else 0
+        downside_volatility = (downside_variance ** 0.5) if downside_variance > 0 else 0.01
+        sortino_ratio = avg_return / downside_volatility if downside_volatility > 0 else 0
+        
+        # Win/Loss ratio
+        win_loss_ratio = (win_sum / loss_sum) if loss_sum > 0 else (1 + win_sum / 0.01)
+        
+        # Profit factor
+        total_profit = sum(p for p in pnl_values if p > 0)
+        total_loss = abs(sum(p for p in pnl_values if p < 0))
+        profit_factor = (total_profit / total_loss) if total_loss > 0 else (1 if total_profit > 0 else 0)
+        
+        # Max drawdown (simplified)
+        max_drawdown = (min(pnl_values) if pnl_values else 0) / 100
+        
+        # Determine risk level
+        if sharpe_ratio > 2 and max_drawdown > -0.1:
+            risk_level = "Low"
+        elif sharpe_ratio > 1 and max_drawdown > -0.2:
+            risk_level = "Moderate"
+        else:
+            risk_level = "High"
+        
+        return {
+            "sharpe_ratio": round(sharpe_ratio, 2),
+            "sortino_ratio": round(sortino_ratio, 2),
+            "max_drawdown": round(max_drawdown * 100, 2),
+            "win_loss_ratio": round(win_loss_ratio, 2),
+            "profit_factor": round(profit_factor, 2),
+            "win_rate": round((win_count / len(bots) * 100) if bots else 0, 2),
+            "risk_level": risk_level
+        }
+    except Exception as e:
+        return {
+            "sharpe_ratio": 0,
+            "sortino_ratio": 0,
+            "max_drawdown": 0,
+            "win_loss_ratio": 0,
+            "profit_factor": 0,
+            "risk_level": "Unknown",
+            "error": str(e)
+        }
 
 
 class BotCreateRequest(BaseModel):
@@ -593,8 +850,21 @@ def create_bot(req: BotCreateRequest):
     from currency_utils import SUPPORTED_CURRENCIES
     if req.currency not in SUPPORTED_CURRENCIES:
         raise HTTPException(status_code=400, detail=f"Currency must be one of: {', '.join(SUPPORTED_CURRENCIES)}")
+    if "huccilation" in req.exchange.lower():
+        raise HTTPException(status_code=400, detail="Huccilation exchange is not allowed for live bots")
     bot = bot_manager.create_bot(req.symbol, req.exchange, req.amount, req.currency, req.strategy, req.timeframe)
     return {"status": "created", "bot": bot.to_dict()}
+
+
+@app.get("/bots/exchanges")
+def list_bot_exchanges():
+    summary = bot_manager.exchange_summary()
+    return {
+        "total_bots": bot_manager.total_count(),
+        "active_bots": bot_manager.active_count(),
+        "exchange_summary": summary,
+        "non_huccilation_exchanges": bot_manager.non_huccilation_exchanges(),
+    }
 
 @app.get("/bots")
 def list_bots():

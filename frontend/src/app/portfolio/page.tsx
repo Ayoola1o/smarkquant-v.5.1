@@ -148,6 +148,7 @@ export default function PortfolioPage() {
   // ── wallet state ─────────────────────────────────────────────────────────
   const [transactions, setTransactions] = useState<any[]>([]);
   const [txSummary, setTxSummary] = useState<any>(null);
+  const [txNetUsd, setTxNetUsd] = useState(0);
   const [txLoading, setTxLoading] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
@@ -168,7 +169,15 @@ export default function PortfolioPage() {
       // recalculate displayed equity so withdrawals/deposits immediately show
       const netTxUsd = txSum?.net_usd ?? 0;
       const base = alpaca?.portfolio_value ?? alpaca?.equity ?? 0;
-      if (base > 0) setEquity(base + netTxUsd);
+      if (base > 0) {
+        setEquity(base + netTxUsd);
+      } else {
+        // non-Alpaca: adjust by delta to avoid drift
+        const prevNet = txSummary?.net_usd ?? txNetUsd;
+        const delta = netTxUsd - prevNet;
+        setEquity(prev => Math.max(prev + delta, 0));
+      }
+      setTxNetUsd(netTxUsd);
     }).catch(() => {}).finally(() => setTxLoading(false));
   };
   const [dayPnl, setDayPnl] = useState(0);
@@ -177,6 +186,13 @@ export default function PortfolioPage() {
   const [totalBots, setTotalBots] = useState(0);
   const [liveMode, setLiveMode] = useState(false);
   const dayPnlRef = useRef(0);
+
+  const [hedgeBalanceCheck, setHedgeBalanceCheck] = useState({
+    computedEquity: 0,
+    sessionPnL: 0,
+    discrepancy: 0,
+    aligned: true,
+  });
 
   // ── fetch real data ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -215,7 +231,8 @@ export default function PortfolioPage() {
 
       // Deposits ADD to the balance; withdrawals SUBTRACT — reflects actual fund flow
       const adjustedEquity = baseEquity + netTxUsd;
-      if (adjustedEquity > 0) setEquity(adjustedEquity);
+      setEquity(adjustedEquity);
+      setTxNetUsd(netTxUsd);
 
       // seed day pnl from REAL today's sessions only — converted to USD
       const today = new Date().toISOString().slice(0, 10);
@@ -224,6 +241,20 @@ export default function PortfolioPage() {
         .reduce((sum, x) => sum + toUsd(x.pnl_value || 0, x.currency), 0);
       dayPnlRef.current = todayPnl;
       setDayPnl(todayPnl);
+
+      // HEDGE CHECK: verify total live/paper session PnL is consistent with computed balance
+      const livePaperSessions = s.filter(x => x.session_type === "live" || x.session_type === "paper");
+      const sessionPnL = livePaperSessions.reduce((sum, x) => sum + toUsd(x.pnl_value || 0, x.currency), 0);
+      const sessionFinishing = livePaperSessions.reduce((sum, x) => {
+        if (x.finishing_balance && x.finishing_balance > 0) return sum + toUsd(x.finishing_balance, x.currency);
+        if (x.starting_balance !== undefined && x.pnl_value !== undefined) return sum + toUsd((x.starting_balance || 0) + (x.pnl_value || 0), x.currency);
+        return sum;
+      }, 0);
+      const computedEquity = sessionFinishing + netTxUsd;
+      const discrepancy = Math.abs(computedEquity - adjustedEquity);
+      const aligned = discrepancy < Math.max(1, Math.abs(computedEquity) * 0.001);
+      setHedgeBalanceCheck({ computedEquity, sessionPnL, discrepancy, aligned });
+
       setLoading(false);
     });
   }, []);
@@ -459,6 +490,12 @@ export default function PortfolioPage() {
                   {fmtC(Math.abs(dayPnl))} ({dayPnlPct >= 0 ? "+" : ""}{fmt(dayPnlPct, 3)}%) today
                 </div>
               )}
+              <div className={`mt-3 px-3 py-2 rounded-lg text-xs border ${hedgeBalanceCheck.aligned ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-300" : "border-rose-500/30 bg-rose-500/5 text-rose-300"}`}>
+                <span className="font-semibold">Hedge correlation check:</span> {hedgeBalanceCheck.aligned ? "OK" : "Mismatch"}
+                <span className="block text-slate-400">Computed equity from live/paper sessions: {fmtC(hedgeBalanceCheck.computedEquity)}</span>
+                <span className="block text-slate-400">Session PnL total: {fmtC(hedgeBalanceCheck.sessionPnL)}</span>
+                <span className="block text-slate-400">Delta vs displayed equity: {fmtC(hedgeBalanceCheck.discrepancy)}</span>
+              </div>
               {/* Balance breakdown */}
               <div className="mt-3 space-y-1">
                 {alpaca && (

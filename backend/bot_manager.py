@@ -352,9 +352,9 @@ class TradingBot:
             if self._is_alpaca:
                 self._alpaca_sync_account(_tc)
             elif self.position == "LONG":
-                self.equity_usd = self.balance_usd + self.position_size * price
+                self.equity_usd = self.balance_usd + self.position_size * (price - self.position_entry)
             elif self.position == "SHORT":
-                self.equity_usd = self.balance_usd + self.position_size * (2 * self.position_entry - price)
+                self.equity_usd = self.balance_usd + self.position_size * (self.position_entry - price)
             else:
                 self.equity_usd = self.balance_usd
 
@@ -506,6 +506,18 @@ class BotManager:
     def list_bots(self) -> List[dict]:
         with self._lock:
             return [b.to_dict() for b in self._bots.values()]
+
+    def exchange_summary(self) -> dict:
+        with self._lock:
+            data = {}
+            for b in self._bots.values():
+                key = b.exchange.lower().strip()
+                data.setdefault(key, []).append(b.to_dict())
+            return data
+
+    def non_huccilation_exchanges(self) -> dict:
+        summary = self.exchange_summary()
+        return {exc: bots for exc, bots in summary.items() if "huccilation" not in exc}
 
     def update_strategy(self, bot_id: str, new_strategy: str) -> bool:
         with self._lock:

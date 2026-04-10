@@ -137,17 +137,54 @@ class TradingBot:
         return None
 
     def _alpaca_place_order(self, tc, side: str, qty: float):
-        """Place a market order on Alpaca and return the order or None."""
+        """Place a market order on Alpaca and return filled order or None."""
+        from alpaca.trading.requests import MarketOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+
+        qty = round(qty, 6)
+        if qty <= 0:
+            self._log(f"[ALPACA] Refusing to place {side} order with qty={qty}")
+            return None
+
         try:
-            from alpaca.trading.requests import MarketOrderRequest
-            from alpaca.trading.enums import OrderSide, TimeInForce
             req = MarketOrderRequest(
                 symbol=self._alpaca_symbol(),
-                qty=round(qty, 6),
+                qty=qty,
                 side=OrderSide.BUY if side == "BUY" else OrderSide.SELL,
                 time_in_force=TimeInForce.GTC,
             )
-            return tc.submit_order(req)
+            order = tc.submit_order(req)
+
+            if not order or getattr(order, "status", None) is None:
+                self._log(f"[ALPACA] Order submission failed: {side} {qty}")
+                return None
+
+            status = getattr(order, "status", "unknown").lower()
+            self._log(f"[ALPACA] Submitted {side} order qty={qty} status={status} id={getattr(order, 'id', 'n/a')}")
+
+            if status == "filled":
+                return order
+
+            # Wait for fill for up to 30 seconds
+            for _ in range(30):
+                time.sleep(1)
+                try:
+                    order = tc.get_order(order.id)
+                except Exception as e:
+                    self._log(f"[ALPACA] get_order error: {e}")
+                    continue
+
+                status = getattr(order, "status", "unknown").lower()
+                if status == "filled":
+                    self._log(f"[ALPACA] Order filled id={order.id}")
+                    return order
+
+                if status in ("canceled", "rejected", "expired", "failed"):
+                    self._log(f"[ALPACA] Order not filled (status={status}) id={order.id}")
+                    return None
+
+            self._log(f"[ALPACA] Order timed out waiting for fill id={order.id} status={status}")
+            return None
         except Exception as e:
             self._log(f"[ALPACA] Order error ({side} {qty}): {e}")
             return None
@@ -156,8 +193,11 @@ class TradingBot:
         """Close the current position on Alpaca."""
         try:
             tc.close_position(self._alpaca_symbol())
+            self._log(f"[ALPACA] Close position requested for {self._alpaca_symbol()}")
+            return True
         except Exception as e:
             self._log(f"[ALPACA] Close position error: {e}")
+            return False
 
     def _alpaca_sync_account(self, tc):
         """Sync balance/equity from Alpaca account."""
@@ -240,9 +280,12 @@ class TradingBot:
                         order_id_str = ""
                         if self._is_alpaca:
                             order = self._alpaca_place_order(_tc, "BUY", qty)
-                            if order:
+                            if order and getattr(order, "filled_qty", 0):
+                                filled_qty = float(order.filled_qty)
                                 order_id_str = f" | OrderID={str(order.id)[:8]}"
+                                qty = filled_qty
                             else:
+                                self._log(f"[ALPACA] BUY order not filled or zero fill for {self.symbol}")
                                 time.sleep(tick_interval)
                                 continue
                         else:
@@ -266,9 +309,12 @@ class TradingBot:
                         order_id_str = ""
                         if self._is_alpaca:
                             order = self._alpaca_place_order(_tc, "SELL", qty)
-                            if order:
+                            if order and getattr(order, "filled_qty", 0):
+                                filled_qty = float(order.filled_qty)
                                 order_id_str = f" | OrderID={str(order.id)[:8]}"
+                                qty = filled_qty
                             else:
+                                self._log(f"[ALPACA] SELL order not filled or zero fill for {self.symbol}")
                                 time.sleep(tick_interval)
                                 continue
                         else:
@@ -291,7 +337,11 @@ class TradingBot:
                 if hit_stop or hit_tp:
                     exit_price = self._stop_price if hit_stop else self._tp_price
                     if self._is_alpaca:
-                        self._alpaca_close_position(_tc)
+                        closed = self._alpaca_close_position(_tc)
+                        if not closed:
+                            self._log(f"[ALPACA] Failed to close LONG position, retrying in next loop")
+                            time.sleep(tick_interval)
+                            continue
                     fee = self.position_size * exit_price * FEE_RATE
                     pnl = (exit_price - self.position_entry) * self.position_size - fee
                     if not self._is_alpaca:
@@ -324,7 +374,11 @@ class TradingBot:
                 if hit_stop or hit_tp:
                     exit_price = self._stop_price if hit_stop else self._tp_price
                     if self._is_alpaca:
-                        self._alpaca_close_position(_tc)
+                        closed = self._alpaca_close_position(_tc)
+                        if not closed:
+                            self._log(f"[ALPACA] Failed to close SHORT position, retrying in next loop")
+                            time.sleep(tick_interval)
+                            continue
                     fee = self.position_size * exit_price * FEE_RATE
                     pnl = (self.position_entry - exit_price) * self.position_size - fee
                     if not self._is_alpaca:

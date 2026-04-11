@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 import { Toaster } from "sonner";
+import { AuthProvider } from "../../lib/auth-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -39,11 +40,13 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-50`}
       >
-        {!hideSidebar && <Sidebar />}
-        <main className={`${hideSidebar ? "" : "ml-64"} min-h-screen`}>
-          {children}
-        </main>
-        <Toaster position="bottom-right" richColors theme="dark" />
+        <AuthProvider>
+          {!hideSidebar && <Sidebar />}
+          <main className={`${hideSidebar ? "" : "ml-64"} min-h-screen`}>
+            {children}
+          </main>
+          <Toaster position="bottom-right" richColors theme="dark" />
+        </AuthProvider>
       </body>
     </html>
   );

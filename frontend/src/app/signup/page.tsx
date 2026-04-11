@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Eye, EyeOff, ArrowLeft, Bot, Check } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, ArrowLeft, Bot, Check, AlertCircle } from "lucide-react";
+import { useAuth } from "../../../lib/auth-context";
 
 export default function SignupPage() {
     const [formData, setFormData] = useState({
@@ -16,6 +18,10 @@ export default function SignupPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const { signup } = useAuth();
+    const router = useRouter();
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value, type, checked } = e.target;
@@ -27,22 +33,44 @@ export default function SignupPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setError(null);
+
         if (formData.password !== formData.confirmPassword) {
-            alert("Passwords don't match");
+            setError("Passwords don't match");
             return;
         }
         if (!formData.agreeToTerms) {
-            alert("Please agree to the terms and conditions");
+            setError("Please agree to the terms and conditions");
             return;
         }
+
+        const passwordRequirements = [
+            formData.password.length >= 8,
+            /[A-Z]/.test(formData.password),
+            /[a-z]/.test(formData.password),
+            /\d/.test(formData.password),
+        ];
+
+        if (!passwordRequirements.every(req => req)) {
+            setError("Password does not meet requirements");
+            return;
+        }
+
         setIsLoading(true);
-        // TODO: Implement actual signup logic
-        // For now, simulate successful signup and redirect
-        setTimeout(() => {
+        try {
+            const displayName = `${formData.firstName} ${formData.lastName}`.trim();
+            await signup(formData.email, formData.password, displayName);
+            // After signup, redirect to login page so user can sign in
+            // (Supabase requires email confirmation before full auth)
+            setTimeout(() => {
+                router.push('/login');
+            }, 500);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Signup failed');
+            console.error('Signup error:', err);
+        } finally {
             setIsLoading(false);
-            // Redirect to dashboard
-            window.location.href = '/dashboard';
-        }, 1000);
+        }
     };
 
     const passwordRequirements = [
@@ -97,6 +125,13 @@ export default function SignupPage() {
 
                     {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-6">
+                        {error && (
+                            <div className="flex items-center p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                <AlertCircle size={20} className="text-red-500 mr-3" />
+                                <p className="text-red-400 text-sm">{error}</p>
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label htmlFor="firstName" className="block text-sm font-medium text-slate-300 mb-2">

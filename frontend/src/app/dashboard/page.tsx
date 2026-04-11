@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { TrendingUp, TrendingDown, Activity, Box, Database, Bot, Zap, CheckCircle, Clock } from "lucide-react";
+import { useProtectedRoute } from "../../../lib/use-protected-route";
 
 interface Route {
     exchange: string;
@@ -58,6 +59,8 @@ const LEVEL_COLOR: Record<LogEntry["level"], string> = {
 };
 
 export default function Home() {
+    useProtectedRoute();
+    
     const [strategies, setStrategies] = useState<string[]>([]);
     const [routes, setRoutes] = useState<Route[]>([]);
     const [candleCount, setCandleCount] = useState<number | null>(null);

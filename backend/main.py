@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import os
 import subprocess
@@ -19,10 +20,14 @@ from transactions import (
     init_transactions_table, create_transaction,
     verify_otp, list_transactions, get_transaction_summary
 )
+from supabase_config import get_supabase_client, verify_supabase_token
 
 root_env = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv(dotenv_path=root_env, override=False)
 app = FastAPI(title="Quant Trading Platform API")
+
+# Supabase Auth setup
+security = HTTPBearer()
 
 # Process Management for Jesse
 class JesseProcessManager:
@@ -98,6 +103,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Supabase Authentication dependency
+async def get_current_user(authorization: str = Header(None)):
+    """Verify Supabase JWT token and return user information"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header missing")
+
+    try:
+        # Extract token from "Bearer <token>" format
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization format")
+
+        token = authorization.split(" ")[1]
+        user_info = verify_supabase_token(token)
+        return user_info
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid authentication credentials: {str(e)}")
+
+# Optional authentication for public endpoints
+async def get_current_user_optional(authorization: str = Header(None)):
+    """Optional authentication - returns None if no token provided"""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+
+    try:
+        token = authorization.split(" ")[1]
+        user_info = verify_supabase_token(token)
+        return user_info
+    except Exception:
+        return None
 
 STRATEGIES_DIR = "strategies"
 

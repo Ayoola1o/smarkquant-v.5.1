@@ -2,24 +2,37 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Eye, EyeOff, ArrowLeft, Bot } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, ArrowLeft, Bot, AlertCircle } from "lucide-react";
+import { useAuth } from "../../../lib/auth-context";
 
 export default function LoginPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const { login } = useAuth();
+    const router = useRouter();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
-        // TODO: Implement actual login logic
-        // For now, simulate successful login and redirect
-        setTimeout(() => {
+        setError(null);
+
+        try {
+            await login(email, password);
+            // Small delay to ensure auth state is updated
+            setTimeout(() => {
+                router.push('/dashboard');
+            }, 500);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Login failed');
+            console.error('Login error:', err);
+        } finally {
             setIsLoading(false);
-            // Redirect to dashboard
-            window.location.href = '/dashboard';
-        }, 1000);
+        }
     };
 
     return (
@@ -67,6 +80,13 @@ export default function LoginPage() {
 
                     {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-6">
+                        {error && (
+                            <div className="flex items-center p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                <AlertCircle size={20} className="text-red-500 mr-3" />
+                                <p className="text-red-400 text-sm">{error}</p>
+                            </div>
+                        )}
+
                         <div>
                             <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
                                 Email Address
@@ -141,7 +161,7 @@ export default function LoginPage() {
                             Don&apos;t have an account?{" "}
                             <Link
                                 href="/signup"
-                                className="text-blue-400 hover:text-blue-300 font-medium transition-colors"
+                                className="text-blue-400 hover:text-blue-300 transition-colors"
                             >
                                 Sign up
                             </Link>

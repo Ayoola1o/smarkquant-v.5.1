@@ -2,9 +2,22 @@
 
 This document describes how to deploy the frontend to Vercel and the backend to an AWS EC2 instance.
 
-## ✅ Pre-Deployment Checklist
+## Quick Reference: Getting Your Backend URL
 
-Before deploying, ensure the following are completed:
+**After launching EC2 instance:**
+
+1. **AWS Console** → EC2 → Instances → Select your instance
+2. **Copy Public IPv4 address** (e.g., `54.123.45.67`)
+3. **Backend URL**: `http://54.123.45.67:8000`
+4. **Vercel Environment Variable**: `BACKEND_URL=http://54.123.45.67:8000`
+
+**Test it works:**
+```bash
+curl http://54.123.45.67:8000/
+# Should return: {"status": "ok", "message": "Quant Platform API is running"}
+```
+
+---
 
 ### Frontend
 - [x] Build passes: `npm run build` succeeds
@@ -190,28 +203,31 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 Better: use `tmux`, `screen`, or a process manager such as `systemd`.
 
-### 3.7 Optional: configure Nginx reverse proxy
+### 3.8 Get your backend URL for Vercel
 
-Use Nginx to expose the backend at `https://api.your-domain.com`.
+After starting the backend service, you need the public URL to configure in Vercel:
 
-Example Nginx config:
+#### Option 1: Using EC2 Public IP (Quick)
+1. Go to AWS EC2 Console → Instances
+2. Find your instance → Copy the **Public IPv4 address**
+3. Your backend URL: `http://<public-ip>:8000`
+4. **For Vercel**: Set `BACKEND_URL=http://<public-ip>:8000`
 
-```nginx
-server {
-    listen 80;
-    server_name api.your-domain.com;
+#### Option 2: Using Elastic IP (Stable)
+1. Allocate an Elastic IP in EC2 Console
+2. Associate it with your instance
+3. Use the Elastic IP: `http://<elastic-ip>:8000`
 
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+#### Option 3: Using Custom Domain (Production)
+1. Point your domain to the EC2 instance
+2. Configure Nginx reverse proxy (see section 3.9)
+3. Use domain: `https://api.yourdomain.com`
+
+#### Testing your backend URL:
+```bash
+curl http://<your-ip>:8000/
+# Should return: {"status": "ok", "message": "Quant Platform API is running"}
 ```
-
-Then reload Nginx and obtain a TLS certificate with Certbot.
 
 ## 4. Confirm end-to-end deployment
 

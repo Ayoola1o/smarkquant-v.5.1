@@ -136,6 +136,24 @@ async def get_current_user_optional(authorization: str = Header(None)):
 
 STRATEGIES_DIR = "strategies"
 
+# Get current user's profile from Supabase
+@app.get("/me")
+async def get_user_profile(user_info: dict = Depends(get_current_user)):
+    """Get current authenticated user's profile"""
+    try:
+        supabase = get_supabase_client()
+        
+        response = supabase.from_("user_profiles").select(
+            "id, email, display_name, avatar_url, created_at, updated_at, preferences"
+        ).eq("id", user_info.get("sub")).single().execute()
+        
+        if response.data:
+            return {"status": "ok", "profile": response.data}
+        else:
+            return {"status": "error", "message": "Profile not found"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching profile: {str(e)}")
+
 class StrategyUpdate(BaseModel):
     code: str
 

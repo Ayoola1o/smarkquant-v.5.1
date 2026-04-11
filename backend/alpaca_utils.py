@@ -1,4 +1,5 @@
 import os
+from supabase_config import get_supabase_client
 
 
 def get_alpaca_credentials():
@@ -15,6 +16,34 @@ def get_alpaca_credentials():
         return None, None
 
     return api_key.strip(), secret_key.strip()
+
+
+def get_user_alpaca_credentials(user_id: str):
+    """Fetch user-specific Alpaca credentials from Supabase profile.
+    
+    Args:
+        user_id: The UUID of the user
+        
+    Returns:
+        tuple: (api_key, secret_key) or (None, None) if not found
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        response = supabase.from_("user_profiles").select(
+            "alpaca_api_key, alpaca_secret_key"
+        ).eq("id", user_id).single().execute()
+        
+        if response.data:
+            api_key = response.data.get("alpaca_api_key")
+            secret_key = response.data.get("alpaca_secret_key")
+            
+            if api_key and secret_key:
+                return api_key.strip(), secret_key.strip()
+    except Exception as e:
+        print(f"Error fetching user Alpaca credentials from Supabase: {e}")
+    
+    return None, None
 
 
 def alpaca_keys_configured():

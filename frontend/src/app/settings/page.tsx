@@ -1,138 +1,412 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Editor from "@monaco-editor/react";
-import { Save, Settings as SettingsIcon, Share2, Shield, Bell, List } from "lucide-react";
+import { useState } from "react";
+import { useAuth } from "../../../lib/auth-context";
+import { supabase } from "../../../lib/supabase";
+import { useProtectedRoute } from "../../../lib/use-protected-route";
+import { Eye, EyeOff, Save, Lock, User, Key, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export default function SettingsPage() {
-    const [activeTab, setActiveTab] = useState<"routes.py" | "config.py">("routes.py");
-    const [code, setCode] = useState<string>("");
-    const [loading, setLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
+  useProtectedRoute();
 
-    useEffect(() => {
-        fetchConfig();
-    }, [activeTab]);
+  const { user, userProfile, updateUserProfile } = useAuth();
+  const [activeTab, setActiveTab] = useState<"profile" | "security" | "api-keys">("profile");
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-    const fetchConfig = async () => {
-        setLoading(true);
-        try {
-            const res = await fetch(`/api/configs/${activeTab}`);
-            const data = await res.json();
-            setCode(data.code);
-        } catch (error) {
-            toast.error(`Failed to load ${activeTab}`);
-        } finally {
-            setLoading(false);
-        }
-    };
+  // Profile form state
+  const [profileData, setProfileData] = useState({
+    display_name: userProfile?.display_name || "",
+  });
 
-    const handleSave = async () => {
-        setIsSaving(true);
-        try {
-            const res = await fetch(`/api/configs/${activeTab}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code }),
-            });
-            if (res.ok) {
-                toast.success(`${activeTab} saved successfully`);
-            } else {
-                throw new Error("Failed to save");
-            }
-        } catch (error) {
-            toast.error(`Error saving ${activeTab}`);
-        } finally {
-            setIsSaving(false);
-        }
-    };
+  // Password form state
+  const [passwordData, setPasswordData] = useState({
+    new_password: "",
+    confirm_password: "",
+  });
 
-    return (
-        <div className="p-8 space-y-6">
-            <header>
-                <h1 className="text-3xl font-bold flex items-center gap-3">
-                    <SettingsIcon className="text-slate-400" />
-                    Settings & Configuration
-                </h1>
-                <p className="text-slate-400">Manage your trading routes and system parameters</p>
-            </header>
+  // API Keys form state
+  const [apiKeys, setApiKeys] = useState({
+    alpaca_api_key: userProfile?.alpaca_api_key || "",
+    alpaca_secret_key: userProfile?.alpaca_secret_key || "",
+  });
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                {/* Navigation Sidebar */}
-                <div className="space-y-2">
-                    {[
-                        { id: "routes.py", label: "Trading Routes", icon: Share2, desc: "Pairs, Timeframes, Strategies" },
-                        { id: "config.py", label: "System Config", icon: SettingsIcon, desc: "API Keys, Database, Exchanges" },
-                    ].map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id as any)}
-                            className={`w-full text-left p-4 rounded-xl border transition-all ${activeTab === tab.id
-                                    ? "bg-blue-600/10 border-blue-600/50 text-white"
-                                    : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:bg-slate-800/50"
-                                }`}
-                        >
-                            <div className="flex items-center gap-3 mb-1">
-                                <tab.icon size={20} className={activeTab === tab.id ? "text-blue-400" : "text-slate-500"} />
-                                <span className="font-bold">{tab.label}</span>
-                            </div>
-                            <p className="text-xs opacity-60 ml-8">{tab.desc}</p>
-                        </button>
-                    ))}
+  const [revealed, setRevealed] = useState({
+    alpaca_api_key: false,
+    alpaca_secret_key: false,
+  });
 
-                    <div className="pt-4 px-4">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">System Hygiene</div>
-                        <div className="space-y-3 opacity-50 pointer-events-none">
-                            <div className="flex items-center gap-3 text-sm text-slate-400"><Shield size={16} /> Security</div>
-                            <div className="flex items-center gap-3 text-sm text-slate-400"><Bell size={16} /> Notifications</div>
-                            <div className="flex items-center gap-3 text-sm text-slate-400"><List size={16} /> Advanced</div>
-                        </div>
-                    </div>
-                </div>
+  // Profile update handler
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
 
-                {/* Editor Area */}
-                <div className="lg:col-span-3 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden min-h-[600px]">
-                    <div className="h-16 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6">
-                        <div className="flex items-center gap-4">
-                            <span className="px-3 py-1 bg-slate-800 rounded text-xs font-mono text-slate-400 border border-slate-700">
-                                {activeTab}
-                            </span>
-                            {loading && <span className="text-xs text-blue-400 animate-pulse">Fetching from server...</span>}
-                        </div>
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving || loading}
-                            className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-all shadow-lg shadow-blue-600/20"
-                        >
-                            <Save size={18} />
-                            {isSaving ? "Saving..." : "Apply Changes"}
-                        </button>
-                    </div>
+    try {
+      await updateUserProfile({
+        display_name: profileData.display_name,
+      });
+      toast.success("Profile updated successfully");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update profile");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-                    <div className="flex-1">
-                        <Editor
-                            height="100%"
-                            defaultLanguage="python"
-                            theme="vs-dark"
-                            value={code}
-                            onChange={(value) => setCode(value || "")}
-                            options={{
-                                fontSize: 14,
-                                minimap: { enabled: true },
-                                scrollBeyondLastLine: false,
-                                automaticLayout: true,
-                                padding: { top: 20 },
-                                fontFamily: "'Fira Code', 'JetBrains Mono', monospace",
-                            }}
-                        />
-                    </div>
+  // Password change handler
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-                    <div className="p-4 bg-slate-950/50 text-[11px] text-slate-500 font-mono border-t border-slate-800">
-                        {/* Note: Changes to routes.py and config.py require an application restart to take full effect in Jesse. */}
-                    </div>
-                </div>
-            </div>
+    if (passwordData.new_password !== passwordData.confirm_password) {
+      toast.error("Passwords don't match");
+      return;
+    }
+
+    if (passwordData.new_password.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: passwordData.new_password,
+      });
+
+      if (error) throw error;
+
+      toast.success("Password changed successfully");
+      setPasswordData({
+        new_password: "",
+        confirm_password: "",
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to change password");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // API Keys update handler
+  const handleApiKeysUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!apiKeys.alpaca_api_key || !apiKeys.alpaca_secret_key) {
+      toast.error("Both API key and Secret key are required");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      await updateUserProfile({
+        alpaca_api_key: apiKeys.alpaca_api_key,
+        alpaca_secret_key: apiKeys.alpaca_secret_key,
+      });
+      toast.success("API keys updated successfully");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update API keys");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 p-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-white mb-2">Settings</h1>
+          <p className="text-slate-400">Manage your profile, security, and API keys</p>
         </div>
-    );
+
+        {/* Tabs */}
+        <div className="flex gap-4 mb-8 border-b border-slate-700">
+          <button
+            onClick={() => setActiveTab("profile")}
+            className={`px-4 py-3 font-medium transition-colors flex items-center gap-2 ${
+              activeTab === "profile"
+                ? "text-blue-400 border-b-2 border-blue-400"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            <User size={20} />
+            Profile
+          </button>
+          <button
+            onClick={() => setActiveTab("security")}
+            className={`px-4 py-3 font-medium transition-colors flex items-center gap-2 ${
+              activeTab === "security"
+                ? "text-blue-400 border-b-2 border-blue-400"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            <Lock size={20} />
+            Security
+          </button>
+          <button
+            onClick={() => setActiveTab("api-keys")}
+            className={`px-4 py-3 font-medium transition-colors flex items-center gap-2 ${
+              activeTab === "api-keys"
+                ? "text-blue-400 border-b-2 border-blue-400"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            <Key size={20} />
+            API Keys
+          </button>
+        </div>
+
+        {/* Profile Tab */}
+        {activeTab === "profile" && (
+          <div className="bg-slate-900 rounded-lg p-8 border border-slate-700">
+            <h2 className="text-2xl font-bold text-white mb-6">Profile Information</h2>
+
+            <form onSubmit={handleProfileUpdate} className="space-y-6">
+              {/* Email (Read-only) */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={user?.email || ""}
+                  disabled
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-slate-400 focus:outline-none"
+                />
+                <p className="text-xs text-slate-500 mt-2">Email cannot be changed</p>
+              </div>
+
+              {/* Display Name */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Display Name
+                </label>
+                <input
+                  type="text"
+                  value={profileData.display_name}
+                  onChange={(e) =>
+                    setProfileData({ ...profileData, display_name: e.target.value })
+                  }
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                  placeholder="Your display name"
+                />
+              </div>
+
+              {/* Account Created */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Account Created
+                </label>
+                <input
+                  type="text"
+                  value={
+                    userProfile?.created_at
+                      ? new Date(userProfile.created_at).toLocaleDateString()
+                      : "N/A"
+                  }
+                  disabled
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-slate-400 focus:outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <Save size={20} />
+                {isLoading ? "Saving..." : "Save Changes"}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* Security Tab */}
+        {activeTab === "security" && (
+          <div className="bg-slate-900 rounded-lg p-8 border border-slate-700">
+            <h2 className="text-2xl font-bold text-white mb-6">Change Password</h2>
+
+            <form onSubmit={handlePasswordChange} className="space-y-6 max-w-md">
+              {/* New Password */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    value={passwordData.new_password}
+                    onChange={(e) =>
+                      setPasswordData({ ...passwordData, new_password: e.target.value })
+                    }
+                    className="w-full px-4 py-3 pr-12 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    placeholder="Enter new password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-300"
+                  >
+                    {showNewPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Must be at least 8 characters long
+                </p>
+              </div>
+
+              {/* Confirm Password */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Confirm New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={passwordData.confirm_password}
+                    onChange={(e) =>
+                      setPasswordData({
+                        ...passwordData,
+                        confirm_password: e.target.value,
+                      })
+                    }
+                    className="w-full px-4 py-3 pr-12 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    placeholder="Confirm new password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-300"
+                  >
+                    {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <Lock size={20} />
+                {isLoading ? "Updating..." : "Update Password"}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* API Keys Tab */}
+        {activeTab === "api-keys" && (
+          <div className="bg-slate-900 rounded-lg p-8 border border-slate-700">
+            <h2 className="text-2xl font-bold text-white mb-2">Alpaca API Keys</h2>
+            <p className="text-slate-400 mb-6">
+              Manage your Alpaca API credentials for trading operations
+            </p>
+
+            <form onSubmit={handleApiKeysUpdate} className="space-y-6 max-w-2xl">
+              {/* Alpaca API Key */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Alpaca API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={revealed.alpaca_api_key ? "text" : "password"}
+                    value={apiKeys.alpaca_api_key}
+                    onChange={(e) =>
+                      setApiKeys({ ...apiKeys, alpaca_api_key: e.target.value })
+                    }
+                    className="w-full px-4 py-3 pr-12 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    placeholder="Enter your Alpaca API key"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRevealed({
+                        ...revealed,
+                        alpaca_api_key: !revealed.alpaca_api_key,
+                      })
+                    }
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-300"
+                  >
+                    {revealed.alpaca_api_key ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Your public API key from Alpaca
+                </p>
+              </div>
+
+              {/* Alpaca Secret Key */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Alpaca Secret Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={revealed.alpaca_secret_key ? "text" : "password"}
+                    value={apiKeys.alpaca_secret_key}
+                    onChange={(e) =>
+                      setApiKeys({ ...apiKeys, alpaca_secret_key: e.target.value })
+                    }
+                    className="w-full px-4 py-3 pr-12 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    placeholder="Enter your Alpaca Secret key"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRevealed({
+                        ...revealed,
+                        alpaca_secret_key: !revealed.alpaca_secret_key,
+                      })
+                    }
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-300"
+                  >
+                    {revealed.alpaca_secret_key ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Keep this secret - never share it publicly
+                </p>
+              </div>
+
+              {/* Info Box */}
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                <div className="flex gap-3">
+                  <AlertCircle size={20} className="text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm text-blue-300">
+                      <strong>Get your API keys:</strong>
+                    </p>
+                    <ol className="text-sm text-blue-300/80 mt-2 list-decimal list-inside space-y-1">
+                      <li>Go to app.alpaca.markets</li>
+                      <li>Navigate to Settings → API Keys</li>
+                      <li>Copy your API Key and Secret Key</li>
+                      <li>Paste them below</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <Save size={20} />
+                {isLoading ? "Saving..." : "Save API Keys"}
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

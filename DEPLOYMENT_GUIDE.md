@@ -2,6 +2,29 @@
 
 This document describes how to deploy the frontend to Vercel and the backend to an AWS EC2 instance.
 
+## ✅ Pre-Deployment Checklist
+
+Before deploying, ensure the following are completed:
+
+### Frontend
+- [x] Build passes: `npm run build` succeeds
+- [x] Critical linting errors fixed:
+  - [x] Variable access before declaration (import/optimize pages)
+  - [x] Math.random() during render (history page)
+  - [x] Variable reassignment after render (portfolio page)
+  - [x] Unescaped entities in JSX (login page)
+  - [x] Improper comments in JSX (settings page)
+  - [x] setState in useEffect (import page)
+- [x] Environment variables configured in `frontend/next.config.ts`
+- [x] CORS headers configured in `frontend/vercel.json`
+
+### Backend
+- [x] Dependencies installed: `pip install -r requirements.txt`
+- [x] Environment variables configured (Alpaca API keys in root `.env`)
+- [x] Database configured (SQLite for local, PostgreSQL/Redis optional)
+- [x] Application can import without errors
+- [x] **Dependency conflicts resolved**: Redis version compatible with Jesse framework
+
 ## 1. Architecture Overview
 
 - Frontend: `frontend/` Next.js app deployed on Vercel.
@@ -203,9 +226,24 @@ Then reload Nginx and obtain a TLS certificate with Certbot.
 - `backend/.env` should include Alpaca keys and allowed frontend origins.
 - Ensure the AWS instance firewall/security group allows traffic only as required.
 
-## 6. Recommended production improvements
+## 8. Troubleshooting
 
-- Use HTTPS on the backend with Nginx and Certbot.
-- Use a process manager (`systemd`, `supervisord`, or Docker) for the backend.
-- Keep secrets out of source control and manage them in Vercel / EC2 environment files.
-- If you have high availability needs, consider AWS RDS for Postgres and ElastiCache for Redis.
+### Common Issues
+
+**Redis/Jesse Dependency Conflict**: If you encounter "No solution found when resolving dependencies" related to redis and jesse versions:
+- The Jesse framework requires redis>=4.1.4,<4.2.dev0
+- Updated requirements.txt to use `redis>=4.1.4` which allows compatible versions
+- If issues persist, try `redis>=4.1.4,<5.0.0` for more restrictive pinning
+
+**Backend Import Errors**: Ensure all dependencies are installed:
+```bash
+cd backend
+pip install -r requirements.txt
+```
+
+**Frontend Build Failures**: Check for TypeScript/linting errors:
+```bash
+cd frontend
+npm run lint
+npm run build
+```

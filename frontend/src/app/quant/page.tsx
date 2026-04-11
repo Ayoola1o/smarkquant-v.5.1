@@ -17,6 +17,16 @@ import {
     Target,
     AlertCircle
 } from "lucide-react";
+
+interface StrategyMetric {
+    name: string;
+    bots: any[];
+    botCount: number;
+    totalPnL: number;
+    avgPnLPerBot: number;
+    avgWinRate: number;
+    [key: string]: any;
+}
 import {
     LineChart,
     Line,
@@ -62,7 +72,7 @@ export default function QuantPage() {
     const [benchmarkData, setBenchmarkData] = useState<any>(null);
     const [bots, setBots] = useState<BotData[]>([]);
     const [portfolioMetrics, setPortfolioMetrics] = useState<any>(null);
-    const [strategyMetrics, setStrategyMetrics] = useState<any>(null);
+    const [strategyMetrics, setStrategyMetrics] = useState<StrategyMetric[]>([]);
     const [riskMetrics, setRiskMetrics] = useState<any>(null);
     const [benchmarkType, setBenchmarkType] = useState("multi");
     const [loading, setLoading] = useState(true);
@@ -132,7 +142,7 @@ export default function QuantPage() {
     const calculateMetrics = (botsList: BotData[]) => {
         if (botsList.length === 0) {
             setPortfolioMetrics(null);
-            setStrategyMetrics(null);
+            setStrategyMetrics([]);
             return;
         }
 

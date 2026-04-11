@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { LayoutDashboard, Beaker, Zap, Database, Settings, History, Radio, PieChart, BookOpen, Briefcase } from 'lucide-react';
+import { LayoutDashboard, Beaker, Zap, Database, Settings, History, Radio, PieChart, BookOpen, Briefcase, LogOut } from 'lucide-react';
 
 const Sidebar = () => {
     return (
@@ -9,7 +9,7 @@ const Sidebar = () => {
                 <span>SmarkQuant</span>
             </div>
             <nav className="space-y-2">
-                <Link href="/" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors">
+                <Link href="/dashboard" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors">
                     <LayoutDashboard size={20} />
                     <span>Dashboard</span>
                 </Link>
@@ -50,6 +50,15 @@ const Sidebar = () => {
                     <span>Settings</span>
                 </Link>
             </nav>
+            <div className="absolute bottom-4 left-4 right-4">
+                <button
+                    onClick={() => window.location.href = '/'}
+                    className="w-full flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
+                >
+                    <LogOut size={20} />
+                    <span>Logout</span>
+                </button>
+            </div>
         </div>
     );
 };

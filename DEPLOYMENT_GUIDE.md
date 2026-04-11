@@ -229,6 +229,12 @@ curl http://<your-ip>:8000/
 # Should return: {"status": "ok", "message": "Quant Platform API is running"}
 ```
 
+**Troubleshooting connection issues:**
+- **Security Group**: Ensure inbound rule allows port 8000 from 0.0.0.0/0
+- **Backend Running**: SSH to instance and check `ps aux | grep uvicorn`
+- **IP Address**: Confirm current public IP in EC2 console
+- **Firewall**: Check `sudo ufw status` on the instance
+
 ## 4. Confirm end-to-end deployment
 
 1. Deploy frontend on Vercel with `BACKEND_URL` set to your backend domain.

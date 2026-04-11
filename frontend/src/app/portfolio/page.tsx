@@ -376,18 +376,19 @@ export default function PortfolioPage() {
   const allEvents = [...sessionEvents, ...completedTxEvents]
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  let cumPnl = 0;
-  const cumCurve = allEvents.map((evt, i) => {
-    cumPnl += evt.delta;
-    return {
+  const cumCurve = allEvents.reduce((acc, evt, i) => {
+    const currentCumPnl = acc.length > 0 ? acc[acc.length - 1].cumPnl : 0;
+    const newCumPnl = currentCumPnl + evt.delta;
+    acc.push({
       label: `#${i + 1}`,
-      cumPnl: Math.round(cumPnl),
+      cumPnl: Math.round(newCumPnl),
       pnl: Math.round(evt.delta),
       strategy: evt.label,
       isDeposit: evt.kind === "deposit",
       isWithdraw: evt.kind === "withdraw",
-    };
-  });
+    });
+    return acc;
+  }, [] as any[]);
 
   // ── per-session drawdown chart (from sessions that have max_drawdown) ────
   const ddChart = backtests.filter(s => s.max_drawdown).slice(0, 30).map((s, i) => ({

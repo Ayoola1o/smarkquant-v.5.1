@@ -42,16 +42,6 @@ export default function ImportPage() {
         s.name.toLowerCase().includes(searchQuery.toLowerCase())
     ).slice(0, 10);
 
-    useEffect(() => {
-        let interval: any;
-        if (status?.is_running) {
-            interval = setInterval(fetchStatus, 2000);
-        } else {
-            fetchStatus();
-        }
-        return () => clearInterval(interval);
-    }, [status?.is_running]);
-
     const fetchStatus = async () => {
         try {
             const res = await fetch("/api/jesse/status");
@@ -62,6 +52,18 @@ export default function ImportPage() {
             console.error("Status fetch failed");
         }
     };
+
+    useEffect(() => {
+        fetchStatus();
+    }, []);
+
+    useEffect(() => {
+        let interval: any;
+        if (status?.is_running) {
+            interval = setInterval(fetchStatus, 2000);
+        }
+        return () => clearInterval(interval);
+    }, [status?.is_running]);
 
     const startImport = async () => {
         try {

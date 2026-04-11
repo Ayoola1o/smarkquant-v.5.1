@@ -129,7 +129,7 @@ export default function SettingsPage() {
                     </div>
 
                     <div className="p-4 bg-slate-950/50 text-[11px] text-slate-500 font-mono border-t border-slate-800">
-             // Note: Changes to routes.py and config.py require an application restart to take full effect in Jesse.
+                        {/* Note: Changes to routes.py and config.py require an application restart to take full effect in Jesse. */}
                     </div>
                 </div>
             </div>

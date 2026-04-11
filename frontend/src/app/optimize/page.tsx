@@ -26,16 +26,6 @@ export default function OptimizePage() {
     const [status, setStatus] = useState<any>(null);
     const logEndRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        let interval: any;
-        if (status?.is_running) {
-            interval = setInterval(fetchStatus, 2000);
-        } else {
-            fetchStatus();
-        }
-        return () => clearInterval(interval);
-    }, [status?.is_running]);
-
     const fetchStatus = async () => {
         try {
             const res = await fetch("/api/jesse/status");
@@ -46,6 +36,16 @@ export default function OptimizePage() {
             console.error("Status fetch failed");
         }
     };
+
+    useEffect(() => {
+        let interval: any;
+        if (status?.is_running) {
+            interval = setInterval(fetchStatus, 2000);
+        } else {
+            fetchStatus();
+        }
+        return () => clearInterval(interval);
+    }, [status?.is_running]);
 
     const startOptimization = async () => {
         try {

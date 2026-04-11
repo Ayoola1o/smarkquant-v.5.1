@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import {
     BookOpen, Trash2, ChevronDown, ChevronUp, TrendingUp, TrendingDown,
     RefreshCw, Filter, BarChart2, Shield, Activity, Target, Pencil, Check, X
@@ -65,6 +65,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export default function HistoryPage() {
+    const gradientId = useId();
     const [sessions, setSessions] = useState<Session[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<"" | "backtest" | "live" | "paper">("");
@@ -400,19 +401,19 @@ function MiniEquityCurve({ data }: { data: number[] }) {
     const end = data[data.length - 1];
     const positive = end >= start;
     const color = positive ? "#4ade80" : "#f87171";
-    const fillId = `fill-${Math.random().toString(36).slice(2, 7)}`;
+    const gradientId = `fill-${gradientId}`;
     return (
         <div className="w-full rounded-xl overflow-hidden bg-slate-900 border border-slate-800">
             <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 80 }}>
                 <defs>
-                    <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={color} stopOpacity="0.25" />
                         <stop offset="100%" stopColor={color} stopOpacity="0" />
                     </linearGradient>
                 </defs>
                 <polygon
                     points={`0,${h} ${pts} ${w},${h}`}
-                    fill={`url(#${fillId})`}
+                    fill={`url(#${gradientId})`}
                 />
                 <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
             </svg>

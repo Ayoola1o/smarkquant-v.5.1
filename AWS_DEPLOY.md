@@ -2,11 +2,12 @@
 
 ## Table of Contents
 1. [Comparison Overview](#comparison-overview)
-2. [EC2 Deployment Guide](#ec2-deployment-guide)
-3. [Kubernetes (EKS) Deployment Guide](#kubernetes-eks-deployment-guide)
-4. [Monitoring & High Availability](#monitoring--high-availability)
-5. [Cost Optimization](#cost-optimization)
-6. [Troubleshooting](#troubleshooting)
+2. [Simple Backend Deployment (Recommended)](#simple-backend-deployment-recommended)
+3. [EC2 Full Deployment Guide](#ec2-full-deployment-guide)
+4. [Kubernetes (EKS) Deployment Guide](#kubernetes-eks-deployment-guide)
+5. [Monitoring & High Availability](#monitoring--high-availability)
+6. [Cost Optimization](#cost-optimization)
+7. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -35,7 +36,496 @@ For your trading bot backend (Python/Flask), EC2 is the better choice because:
 
 ---
 
-## EC2 Deployment Guide
+## Simple Backend Deployment (Recommended)
+
+**Perfect for beginners** - Deploy just your backend (Flask API) to AWS EC2 and connect to Vercel frontend. This keeps your backend running 24/7 even when you close your terminal.
+
+### What You'll Get
+✅ Backend running 24/7 on AWS (even after you close terminal)  
+✅ Connected to Vercel frontend  
+✅ Auto-restart on crash  
+✅ HTTPS/SSL support  
+✅ ~$25-30/month cost  
+✅ Easy to monitor and update  
+
+### Prerequisites
+- AWS Account (free tier eligible)
+- GitHub account
+- 10-15 minutes of setup time
+
+### Step 1: Create AWS EC2 Instance
+
+Go to [AWS EC2 Console](https://console.aws.amazon.com/ec2):
+
+1. Click **Launch Instances**
+2. Name: `smarkquant-backend`
+3. AMI: **Ubuntu 22.04 LTS** (free tier eligible)
+4. Instance Type: **t3.micro** (free) or **t3.small** (if processing heavy)
+5. Key Pair: Create new or use existing
+6. Storage: **30 GB** (free tier: up to 30 GB)
+7. Security Group: Create new, allow:
+   - Port 22 (SSH) from your IP
+   - Port 80 (HTTP) from anywhere
+   - Port 443 (HTTPS) from anywhere
+   - Port 8000 (Backend) from anywhere
+8. Click **Launch**
+
+### Step 2: Connect to Instance
+
+```bash
+# SSH to your instance (get IP from AWS console)
+ssh -i /path/to/your-key.pem ubuntu@<your-ec2-public-ip>
+
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install basic tools
+sudo apt install -y curl git wget
+```
+
+### Step 3: Install Python & Dependencies
+
+```bash
+# Install Python 3.11
+sudo apt install -y python3.11 python3.11-venv python3-pip
+
+# Create virtual environment
+python3.11 -m venv /opt/smarkquant-env
+source /opt/smarkquant-env/bin/activate
+
+# Verify Python
+python3 --version
+```
+
+### Step 4: Clone & Setup Your Backend
+
+```bash
+# Clone your repository
+cd /opt
+sudo git clone https://github.com/Ayoola1o/smarkquant-v.5.1.git
+sudo chown -R ubuntu:ubuntu smarkquant-v.5.1
+cd smarkquant-v.5.1/backend
+
+# Activate virtual environment
+source /opt/smarkquant-env/bin/activate
+
+# Install Python dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Also install gunicorn for production
+pip install gunicorn
+```
+
+### Step 5: Create Environment File
+
+```bash
+# Create .env file
+cat > .env << 'EOF'
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+
+# Alpaca (if trading)
+APCA_API_BASE_URL=https://paper-api.alpaca.markets
+APCA_API_KEY_ID=your-alpaca-key
+APCA_API_SECRET_KEY=your-alpaca-secret
+
+# Flask Configuration
+FLASK_ENV=production
+FLASK_APP=main.py
+SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+
+# CORS (for Vercel frontend)
+FRONTEND_URL=https://your-frontend.vercel.app
+
+# Server
+HOST=0.0.0.0
+PORT=8000
+WORKERS=4
+EOF
+
+# Make it readable only by you
+chmod 600 .env
+```
+
+**Get your Supabase keys from:**
+1. Go to [Supabase Dashboard](https://supabase.com)
+2. Click your project
+3. Go to Settings → API
+4. Copy the URLs and keys
+
+### Step 6: Test Backend Locally
+
+```bash
+# Activate environment
+source /opt/smarkquant-env/bin/activate
+
+# Test with Flask development server
+python3 main.py
+
+# Should show: "Running on http://0.0.0.0:8000"
+# Press Ctrl+C to stop
+```
+
+### Step 7: Keep Backend Running 24/7 (Systemd Service)
+
+Create a systemd service file that auto-starts on reboot:
+
+```bash
+# Create service file
+sudo tee /etc/systemd/system/smarkquant-backend.service > /dev/null <<'EOF'
+[Unit]
+Description=SMarkQuant Backend API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/smarkquant-v.5.1/backend
+Environment="PATH=/opt/smarkquant-env/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Start command using gunicorn
+ExecStart=/opt/smarkquant-env/bin/gunicorn \
+  --bind 0.0.0.0:8000 \
+  --workers 4 \
+  --worker-class sync \
+  --timeout 120 \
+  --access-logfile /var/log/smarkquant/access.log \
+  --error-logfile /var/log/smarkquant/error.log \
+  main:app
+
+# Restart on crash
+Restart=always
+RestartSec=10
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Create log directory
+sudo mkdir -p /var/log/smarkquant
+sudo chown ubuntu:ubuntu /var/log/smarkquant
+
+# Enable the service
+sudo systemctl daemon-reload
+sudo systemctl enable smarkquant-backend.service
+sudo systemctl start smarkquant-backend.service
+
+# Check if it's running
+sudo systemctl status smarkquant-backend.service
+
+# View logs
+sudo journalctl -u smarkquant-backend.service -f
+```
+
+**Now your backend will:**
+- ✅ Start automatically on EC2 reboot
+- ✅ Auto-restart if it crashes
+- ✅ Keep running even if you close SSH
+- ✅ Be accessible 24/7
+
+### Step 8: Add SSL Certificate (HTTPS)
+
+```bash
+# Install Certbot for Let's Encrypt
+sudo apt install -y certbot
+
+# Generate certificate (replace with your domain)
+sudo certbot certonly --standalone \
+  -d api.your-domain.com \
+  --non-interactive \
+  --agree-tos \
+  --email your-email@gmail.com
+
+# Certificate location:
+# /etc/letsencrypt/live/api.your-domain.com/
+
+# Auto-renewal with cron (runs daily)
+sudo systemctl enable certbot.timer
+sudo systemctl start certbot.timer
+```
+
+### Step 9: Setup Nginx as Reverse Proxy
+
+```bash
+# Install Nginx
+sudo apt install -y nginx
+
+# Create Nginx config
+sudo tee /etc/nginx/sites-available/backend > /dev/null <<'EOF'
+upstream gunicorn {
+    server 127.0.0.1:8000;
+}
+
+server {
+    listen 80;
+    server_name api.your-domain.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name api.your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/api.your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.your-domain.com/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+
+    # CORS headers for Vercel
+    add_header Access-Control-Allow-Origin "https://your-frontend.vercel.app" always;
+    add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
+
+    location / {
+        proxy_pass http://gunicorn;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # Handle CORS preflight
+    location / {
+        if ($request_method = 'OPTIONS') {
+            return 204;
+        }
+    }
+}
+EOF
+
+# Enable site
+sudo ln -s /etc/nginx/sites-available/backend /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# Test config
+sudo nginx -t
+
+# Start Nginx
+sudo systemctl enable nginx
+sudo systemctl restart nginx
+```
+
+### Step 10: Update Vercel Frontend
+
+In your Vercel project, set environment variable:
+
+**Environment Variable:**
+```
+NEXT_PUBLIC_API_BASE_URL=https://api.your-domain.com
+```
+
+**Update frontend API client:**
+
+Create `frontend/lib/api-client.ts`:
+```typescript
+const API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+
+export async function apiCall(
+  endpoint: string,
+  options: RequestInit = {}
+) {
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  })
+  
+  if (!response.ok) {
+    throw new Error(`API Error: ${response.status}`)
+  }
+  
+  return response.json()
+}
+```
+
+Use in components:
+```typescript
+import { apiCall } from '@/lib/api-client'
+
+// In your component
+const data = await apiCall('/strategies')
+```
+
+Redeploy on Vercel:
+```bash
+git push origin main
+# Vercel auto-deploys automatically
+```
+
+### Step 11: Monitor Your Backend
+
+Check backend status from anywhere:
+
+```bash
+# SSH to instance
+ssh -i key.pem ubuntu@<instance-ip>
+
+# View logs
+sudo journalctl -u smarkquant-backend.service -f
+
+# Check if running
+sudo systemctl status smarkquant-backend.service
+
+# View resource usage
+top
+
+# Check Nginx
+sudo systemctl status nginx
+sudo tail -f /var/log/nginx/access.log
+```
+
+### Step 12: Get Your Static IP (Optional)
+
+To keep the same IP even after stopping/starting:
+
+```bash
+# Allocate Elastic IP
+aws ec2 allocate-address --domain vpc
+
+# Note the Allocation ID, then attach to instance
+aws ec2 associate-address \
+  --instance-id i-xxxxxxxxx \
+  --allocation-id eipalloc-xxxxxxxxx
+```
+
+### Daily Workflow
+
+Once deployed:
+
+```bash
+# SSH to instance
+ssh -i key.pem ubuntu@<instance-ip>
+
+# View logs
+sudo journalctl -u smarkquant-backend.service -n 50
+
+# Restart backend (if needed)
+sudo systemctl restart smarkquant-backend.service
+
+# Check health
+curl https://api.your-domain.com/health
+```
+
+### Update Backend Code
+
+When you update code:
+
+```bash
+# SSH to instance
+ssh -i key.pem ubuntu@<instance-ip>
+
+# Go to backend directory
+cd /opt/smarkquant-v.5.1/backend
+
+# Pull latest changes
+git pull origin main
+
+# Activate environment
+source /opt/smarkquant-env/bin/activate
+
+# Install any new dependencies
+pip install -r requirements.txt
+
+# Restart backend
+sudo systemctl restart smarkquant-backend.service
+
+# Check it started
+sudo systemctl status smarkquant-backend.service
+```
+
+### Troubleshooting Simple Deployment
+
+**Backend won't start:**
+```bash
+# Check logs
+sudo journalctl -u smarkquant-backend.service -n 100
+
+# Check if port is in use
+sudo lsof -i :8000
+
+# Check if environment variables loaded
+systemctl cat smarkquant-backend.service
+```
+
+**Vercel can't reach backend:**
+```bash
+# SSH to instance
+curl http://localhost:8000/health
+
+# Check Nginx
+sudo nginx -t
+sudo systemctl status nginx
+
+# Check security group allows port 443
+aws ec2 describe-security-groups --group-ids sg-xxxxx
+```
+
+**Out of disk space:**
+```bash
+# Check disk usage
+df -h
+
+# Clear old logs
+sudo journalctl --vacuum=time=7d
+
+# Clear pip cache
+pip cache purge
+```
+
+**Need to stop backend:**
+```bash
+sudo systemctl stop smarkquant-backend.service
+# (It will auto-restart if you reboot instance)
+
+# To disable auto-start:
+sudo systemctl disable smarkquant-backend.service
+```
+
+### Cost Estimate
+
+| Resource | Cost/Month |
+|----------|-----------|
+| EC2 t3.micro | Free (first year) |
+| EC2 t3.small | $8.51 |
+| EBS Storage | $0.10/GB |
+| Data Transfer | $0 (in AWS) |
+| Domain (optional) | $10-15/year |
+| SSL Certificate | Free |
+| **Total** | **$0-10/month** |
+
+### Security Checklist
+
+- ✅ SSH key stored safely
+- ✅ Security group allows only needed ports
+- ✅ Environment variables in .env (not in GitHub)
+- ✅ HTTPS enabled with SSL certificate
+- ✅ CORS configured for Vercel domain only
+- ✅ Logs monitored for errors
+- ✅ Auto-restart on crash enabled
+- ✅ Regular backups of database
+
+---
+
+## EC2 Full Deployment Guide
 
 ### Prerequisites
 - AWS Account with billing enabled

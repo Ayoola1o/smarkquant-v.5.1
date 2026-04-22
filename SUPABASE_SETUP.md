@@ -35,7 +35,7 @@ This guide will help you set up Supabase for authentication and database functio
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3Z3dsa3J1cGt4Z21kZ2txcXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5MjMxODgsImV4cCI6MjA5MTQ5OTE4OH0.d7LIZ2s9UCmban4oZ-Ky31omSfiAsd4wI6LaJPqebdo
 NEXT_PUBLIC_SUPABASE_URL=https://fwgwlkrupkxgmdgkqqxh.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_zGjuCw6-dJ3IcWEXWRJapg_wcdxDjbz
 ```
@@ -45,7 +45,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_zGjuCw6-dJ3IcWEXWRJapg_wcdxD
 1. In the same API settings page, copy:
 ```env
 SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3Z3dsa3J1cGt4Z21kZ2txcXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTkyMzE4OCwiZXhwIjoyMDkxNDk5MTg4fQ.s3fg4N1BoAUOSvnvfl5ruhOuEBf6ulkl1EtKVlgN0Q4
+
 ```
 
 ## Step 4: Set up Database Tables

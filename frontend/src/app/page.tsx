@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { TrendingUp, Bot, Zap, ArrowRight } from "lucide-react";
+import { TrendingUp, Zap, ArrowRight } from "lucide-react";
 
 export default function LandingPage() {
     return (
@@ -10,9 +10,11 @@ export default function LandingPage() {
                 {/* Hero Section */}
                 <div className="mb-12">
                     <div className="flex justify-center mb-6">
-                        <div className="p-4 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full">
-                            <Bot size={48} className="text-white" />
-                        </div>
+                        <img 
+                            src="/logo.svg" 
+                            alt="SmarkQuant Logo"
+                            className="w-24 h-24 drop-shadow-lg"
+                        />
                     </div>
                     <h1 className="text-5xl md:text-6xl font-bold text-white mb-4">
                         Smark<span className="text-blue-400">Quant</span>
@@ -49,7 +51,7 @@ export default function LandingPage() {
 
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm">
                         <div className="p-3 bg-purple-500/10 rounded-lg w-fit mx-auto mb-4">
-                            <Bot size={24} className="text-purple-400" />
+                            <Zap size={24} className="text-purple-400" />
                         </div>
                         <h3 className="text-lg font-semibold text-white mb-2">AI Optimization</h3>
                         <p className="text-slate-400 text-sm">

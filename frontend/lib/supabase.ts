@@ -1,6 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase configuration - load from environment variables
+// ℹ️ Note: NEXT_PUBLIC_SUPABASE_ANON_KEY is intentionally public
+// This is the Supabase anonymous key (not a secret), designed for browser use
+// It has limited permissions controlled by Row-Level Security (RLS) policies
+// See: https://supabase.com/docs/guides/api/rest/overview#authentication
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, ArrowLeft, Bot, Check, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft, Check, AlertCircle } from "lucide-react";
 import { useAuth } from "../../../lib/auth-context";
 
 export default function SignupPage() {
@@ -95,9 +95,11 @@ export default function SignupPage() {
                 <div className="relative z-10 flex items-center justify-center w-full p-12">
                     <div className="text-center text-white">
                         <div className="flex justify-center mb-6">
-                            <div className="p-4 bg-white/10 backdrop-blur-sm rounded-full">
-                                <Bot size={48} className="text-white" />
-                            </div>
+                            <img 
+                                src="/logo.svg" 
+                                alt="SmarkQuant Logo"
+                                className="w-20 h-20 drop-shadow-lg"
+                            />
                         </div>
                         <h2 className="text-3xl font-bold mb-4">Join SmarkQuant</h2>
                         <p className="text-lg text-white/80">

@@ -1,0 +1,32 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="95" fill="#1e3a8a" stroke="#3b82f6" stroke-width="2"/>
+  
+  <!-- Gradient definition -->
+  <defs>
+    <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fbbf24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="glowGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#93c5fd;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#fcd34d;stop-opacity:0.3" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Glow effect -->
+  <circle cx="100" cy="100" r="90" fill="url(#glowGradient)" opacity="0.5"/>
+  
+  <!-- Letter S -->
+  <text x="60" y="125" font-family="Arial, sans-serif" font-size="90" font-weight="bold" fill="url(#textGradient)" text-anchor="middle">S</text>
+  
+  <!-- Letter M -->
+  <text x="140" y="125" font-family="Arial, sans-serif" font-size="90" font-weight="bold" fill="url(#textGradient)" text-anchor="middle">M</text>
+  
+  <!-- Decorative line -->
+  <line x1="85" y1="145" x2="115" y2="145" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Corner accents -->
+  <circle cx="25" cy="25" r="4" fill="#fbbf24" opacity="0.6"/>
+  <circle cx="175" cy="175" r="4" fill="#fbbf24" opacity="0.6"/>
+</svg>

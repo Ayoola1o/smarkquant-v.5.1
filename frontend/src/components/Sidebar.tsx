@@ -57,10 +57,10 @@ const Sidebar = () => {
                     isOpen ? "w-64" : "-translate-x-full md:translate-x-0 md:w-64"
                 } md:translate-x-0`}
             >
-                <div className="text-2xl font-bold mb-8 px-2 flex items-center gap-2">
-                    <Zap className="text-yellow-400" />
+                <Link href="/dashboard" className="text-2xl font-bold mb-8 px-2 flex items-center gap-2 hover:opacity-80 transition-opacity">
+                    <img src="/favicon.svg" alt="SmarkQuant" className="w-10 h-10" />
                     <span className={`${!isOpen ? "hidden" : ""} transition-opacity`}>SmarkQuant</span>
-                </div>
+                </Link>
 
                 <nav className="space-y-2 pb-20 overflow-y-auto max-h-[calc(100vh-120px)]">
                     {navItems.map((item) => (

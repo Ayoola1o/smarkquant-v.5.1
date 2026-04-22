@@ -401,7 +401,7 @@ function MiniEquityCurve({ data }: { data: number[] }) {
     const end = data[data.length - 1];
     const positive = end >= start;
     const color = positive ? "#4ade80" : "#f87171";
-    const gradientId = `fill-${gradientId}`;
+    const gradientId = `fill-gradient-${Math.random().toString(36).substr(2, 9)}`;
     return (
         <div className="w-full rounded-xl overflow-hidden bg-slate-900 border border-slate-800">
             <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 80 }}>

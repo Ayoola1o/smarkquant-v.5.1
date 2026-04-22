@@ -146,8 +146,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Signup failed';
+      let errorMessage = 'Signup failed';
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        // Provide more helpful error messages
+        if (err.message.includes('Failed to fetch')) {
+          errorMessage = 'Network error: Unable to connect to authentication service. Please check your internet connection.';
+        } else if (err.message.includes('already registered')) {
+          errorMessage = 'This email is already registered';
+        } else if (err.message.includes('Password')) {
+          errorMessage = 'Password does not meet requirements';
+        }
+      }
+      
       setError(errorMessage);
+      console.error('Signup error:', err);
       throw err;
     }
   };
@@ -168,8 +182,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await fetchUserProfile(data.user.id);
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Login failed';
+      let errorMessage = 'Login failed';
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        // Provide more helpful error messages
+        if (err.message.includes('Failed to fetch')) {
+          errorMessage = 'Network error: Unable to connect to authentication service. Please check your internet connection.';
+        } else if (err.message.includes('Invalid credentials')) {
+          errorMessage = 'Invalid email or password';
+        } else if (err.message.includes('Email not confirmed')) {
+          errorMessage = 'Please confirm your email address before logging in';
+        }
+      }
+      
       setError(errorMessage);
+      console.error('Login error:', err);
       throw err;
     }
   };

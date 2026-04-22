@@ -390,6 +390,8 @@ export default function PortfolioPage() {
     return acc;
   }, [] as any[]);
 
+  const cumPnl = cumCurve.length > 0 ? cumCurve[cumCurve.length - 1].cumPnl : 0;
+
   // ── per-session drawdown chart (from sessions that have max_drawdown) ────
   const ddChart = backtests.filter(s => s.max_drawdown).slice(0, 30).map((s, i) => ({
     label: `#${i + 1}`,

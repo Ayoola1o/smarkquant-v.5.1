@@ -7,6 +7,7 @@ import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 import { Toaster } from "sonner";
 import { AuthProvider } from "../../lib/auth-context";
+import { SidebarProvider } from "@/lib/sidebar-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,16 +37,19 @@ export default function RootLayout({
       <head>
         <title>SmarkQuant - Quant Trading Platform</title>
         <meta name="description" content="Advanced Jesse Framework GUI & Quant Research Extension" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-50`}
       >
         <AuthProvider>
-          {!hideSidebar && <Sidebar />}
-          <main className={`${hideSidebar ? "" : "ml-64"} min-h-screen`}>
-            {children}
-          </main>
-          <Toaster position="bottom-right" richColors theme="dark" />
+          <SidebarProvider>
+            {!hideSidebar && <Sidebar />}
+            <main className={`min-h-screen transition-all duration-300 ${hideSidebar ? "" : "md:ml-64"} p-4 md:p-6`}>
+              {children}
+            </main>
+            <Toaster position="bottom-right" richColors theme="dark" />
+          </SidebarProvider>
         </AuthProvider>
       </body>
     </html>

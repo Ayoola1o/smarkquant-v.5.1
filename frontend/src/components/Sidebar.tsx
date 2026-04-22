@@ -1,65 +1,92 @@
+"use client";
+
 import Link from 'next/link';
-import { LayoutDashboard, Beaker, Zap, Database, Settings, History, Radio, PieChart, BookOpen, Briefcase, LogOut } from 'lucide-react';
+import { LayoutDashboard, Beaker, Zap, Database, Settings, History, Radio, PieChart, BookOpen, Briefcase, LogOut, Menu, X } from 'lucide-react';
+import { useSidebar } from '@/lib/sidebar-context';
+import { useEffect, useState } from 'react';
 
 const Sidebar = () => {
+    const { isOpen, toggleSidebar } = useSidebar();
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    const navItems = [
+        { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+        { href: "/strategies", icon: Beaker, label: "Strategies" },
+        { href: "/backtest", icon: History, label: "Backtest" },
+        { href: "/optimize", icon: Zap, label: "Optimize", color: "text-yellow-400" },
+        { href: "/live", icon: Radio, label: "Live", color: "text-red-400" },
+        { href: "/history", icon: BookOpen, label: "Trade History", color: "text-emerald-400" },
+        { href: "/portfolio", icon: Briefcase, label: "Hedge Fund", color: "text-amber-400" },
+        { href: "/quant", icon: PieChart, label: "Quant", color: "text-purple-400" },
+        { href: "/import", icon: Database, label: "Data" },
+        { href: "/settings", icon: Settings, label: "Settings" },
+    ];
+
     return (
-        <div className="w-64 bg-slate-900 text-white h-screen fixed left-0 top-0 p-4 border-r border-slate-800">
-            <div className="text-2xl font-bold mb-8 px-2 flex items-center gap-2">
-                <Zap className="text-yellow-400" />
-                <span>SmarkQuant</span>
-            </div>
-            <nav className="space-y-2">
-                <Link href="/dashboard" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors">
-                    <LayoutDashboard size={20} />
-                    <span>Dashboard</span>
-                </Link>
-                <Link href="/strategies" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors">
-                    <Beaker size={20} />
-                    <span>Strategies</span>
-                </Link>
-                <Link href="/backtest" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors">
-                    <History size={20} />
-                    <span>Backtest</span>
-                </Link>
-                <Link href="/optimize" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors">
-                    <Zap size={20} className="text-yellow-400" />
-                    <span>Optimize</span>
-                </Link>
-                <Link href="/live" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-red-400">
-                    <Radio size={20} />
-                    <span>Live</span>
-                </Link>
-                <Link href="/history" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-emerald-400">
-                    <BookOpen size={20} />
-                    <span>Trade History</span>
-                </Link>
-                <Link href="/portfolio" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-amber-400">
-                    <Briefcase size={20} />
-                    <span>Hedge Fund</span>
-                </Link>
-                <Link href="/quant" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-purple-400">
-                    <PieChart size={20} />
-                    <span>Quant</span>
-                </Link>
-                <Link href="/import" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors">
-                    <Database size={20} />
-                    <span>Data</span>
-                </Link>
-                <Link href="/settings" className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors">
-                    <Settings size={20} />
-                    <span>Settings</span>
-                </Link>
-            </nav>
-            <div className="absolute bottom-4 left-4 right-4">
+        <>
+            {/* Mobile Hamburger Button */}
+            <div className="md:hidden fixed top-4 left-4 z-50">
                 <button
-                    onClick={() => window.location.href = '/'}
-                    className="w-full flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
+                    onClick={toggleSidebar}
+                    className="p-2 bg-slate-900 text-white rounded-lg border border-slate-800 hover:bg-slate-800 transition-colors"
                 >
-                    <LogOut size={20} />
-                    <span>Logout</span>
+                    {isOpen ? <X size={24} /> : <Menu size={24} />}
                 </button>
             </div>
-        </div>
+
+            {/* Mobile Overlay */}
+            {isMobile && isOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                    onClick={toggleSidebar}
+                />
+            )}
+
+            {/* Sidebar */}
+            <div
+                className={`fixed top-0 left-0 h-screen bg-slate-900 text-white border-r border-slate-800 p-4 transition-all duration-300 z-40 ${
+                    isOpen ? "w-64" : "-translate-x-full md:translate-x-0 md:w-64"
+                } md:translate-x-0`}
+            >
+                <div className="text-2xl font-bold mb-8 px-2 flex items-center gap-2">
+                    <Zap className="text-yellow-400" />
+                    <span className={`${!isOpen ? "hidden" : ""} transition-opacity`}>SmarkQuant</span>
+                </div>
+
+                <nav className="space-y-2 pb-20 overflow-y-auto max-h-[calc(100vh-120px)]">
+                    {navItems.map((item) => (
+                        <Link
+                            key={item.href}
+                            href={item.href}
+                            className={`flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors ${item.color || ""}`}
+                            onClick={() => isMobile && toggleSidebar()}
+                        >
+                            <item.icon size={20} className="flex-shrink-0" />
+                            <span className="whitespace-nowrap">{item.label}</span>
+                        </Link>
+                    ))}
+                </nav>
+
+                <div className="absolute bottom-4 left-4 right-4">
+                    <button
+                        onClick={() => window.location.href = '/'}
+                        className="w-full flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
+                    >
+                        <LogOut size={20} className="flex-shrink-0" />
+                        <span>Logout</span>
+                    </button>
+                </div>
+            </div>
+        </>
     );
 };
 

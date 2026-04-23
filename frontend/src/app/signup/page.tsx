@@ -87,8 +87,7 @@ export default function SignupPage() {
                 <div
                     className="absolute inset-0 bg-cover bg-center"
                     style={{
-                        backgroundImage: "url('/background.jpg')",
-                        backgroundColor: "#1e293b" // Fallback color
+                        background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)"
                     }}
                 />
                 <div className="absolute inset-0 bg-black/40" />

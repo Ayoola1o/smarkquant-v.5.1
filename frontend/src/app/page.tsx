@@ -239,7 +239,7 @@ export default function LandingPage() {
                     <div>
                         <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 rounded-2xl p-8 border border-slate-700">
                             <img 
-                                src="/founder.jpg" 
+                                src="/Founder_image.png" 
                                 alt="Founder" 
                                 className="w-full h-96 object-cover rounded-xl mb-6"
                             />

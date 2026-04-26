@@ -55,6 +55,7 @@ SmarkQuant is a sophisticated quantitative trading platform designed for strateg
    ```
 3. Install dependencies:
    ```bash
+   
    pip install --upgrade pip setuptools wheel
    pip install "uvicorn[standard]>=0.29.0" 
    pip install "pydantic>=2.0.0" 

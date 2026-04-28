@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   TrendingUp, TrendingDown, DollarSign, BarChart2, Activity,
   Shield, Briefcase, ArrowUpRight, ArrowDownRight,
@@ -52,9 +52,9 @@ function fmtC(n: number) {
   const sign = n < 0 ? "-$" : "$";
   if (abs >= 1e15) return sign + fmt(abs / 1e15, 2) + "Q";
   if (abs >= 1e12) return sign + fmt(abs / 1e12, 2) + "T";
-  if (abs >= 1e9)  return sign + fmt(abs / 1e9,  2) + "B";
-  if (abs >= 1e6)  return sign + fmt(abs / 1e6,  2) + "M";
-  if (abs >= 1e3)  return sign + fmt(abs / 1e3,  1) + "K";
+  if (abs >= 1e9) return sign + fmt(abs / 1e9, 2) + "B";
+  if (abs >= 1e6) return sign + fmt(abs / 1e6, 2) + "M";
+  if (abs >= 1e3) return sign + fmt(abs / 1e3, 1) + "K";
   return sign + fmt(abs, 2);
 }
 function fmtFull(n: number) {
@@ -62,8 +62,8 @@ function fmtFull(n: number) {
   const sign = n < 0 ? "-$" : "$";
   if (abs >= 1e15) return sign + fmt(abs / 1e15, 3) + "Q";
   if (abs >= 1e12) return sign + fmt(abs / 1e12, 3) + "T";
-  if (abs >= 1e9)  return sign + fmt(abs / 1e9,  3) + "B";
-  if (abs >= 1e6)  return sign + fmt(abs / 1e6,  3) + "M";
+  if (abs >= 1e9) return sign + fmt(abs / 1e9, 3) + "B";
+  if (abs >= 1e6) return sign + fmt(abs / 1e6, 3) + "M";
   return sign + new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(abs);
 }
 
@@ -178,7 +178,7 @@ export default function PortfolioPage() {
         setEquity(prev => Math.max(prev + delta, 0));
       }
       setTxNetUsd(netTxUsd);
-    }).catch(() => {}).finally(() => setTxLoading(false));
+    }).catch(() => { }).finally(() => setTxLoading(false));
   };
   const [dayPnl, setDayPnl] = useState(0);
   const [lastUpdate, setLastUpdate] = useState(new Date());
@@ -271,7 +271,7 @@ export default function PortfolioPage() {
           setActiveBots(d.active_count ?? 0);
           setTotalBots(d.total_count ?? 0);
         })
-        .catch(() => {});
+        .catch(() => { });
     poll();
     const id = setInterval(poll, 5000);
     return () => clearInterval(id);
@@ -290,130 +290,185 @@ export default function PortfolioPage() {
     return () => clearInterval(id);
   }, [activeBots]);
 
-  // ── derived metrics from real sessions ──────────────────────────────────
-  const backtests = sessions.filter(s => s.session_type === "backtest");
-  const liveSessions = sessions.filter(s => s.session_type === "live" || s.session_type === "paper");
+  // ── derived metrics from real sessions (memoized) ───────────────────────
+  const {
+    backtests, liveSessions, totalPnl, totalTrades, totalWins, totalLosses,
+    totalFees, totalGrossProfit, totalGrossLoss, profitSessions, sessionWinRate,
+    avgSharpe, avgSortino, avgCalmar, avgOmega, worstDd, avgWinRate,
+    bestSession, worstSession, largestWin, largestLoss, avgExpectancy,
+    backtestPnl, livePaperPnl
+  } = useMemo(() => {
+    const backtests = sessions.filter(s => s.session_type === "backtest");
+    const liveSessions = sessions.filter(s => s.session_type === "live" || s.session_type === "paper");
 
-  const totalPnl = sessions.reduce((s, x) => s + toUsd(x.pnl_value || 0, x.currency), 0);
-  const totalTrades = sessions.reduce((s, x) => s + (x.total_trades || 0), 0);
-  const totalWins = sessions.reduce((s, x) => s + (x.total_winning_trades || 0), 0);
-  const totalLosses = sessions.reduce((s, x) => s + (x.total_losing_trades || 0), 0);
-  const totalFees = sessions.reduce((s, x) => s + toUsd(x.fee || 0, x.currency), 0);
-  const totalGrossProfit = sessions.reduce((s, x) => s + toUsd(x.gross_profit || 0, x.currency), 0);
-  const totalGrossLoss = sessions.reduce((s, x) => s + toUsd(x.gross_loss || 0, x.currency), 0);
-  const profitSessions = sessions.filter(s => s.pnl_value > 0).length;
-  const sessionWinRate = sessions.length ? (profitSessions / sessions.length) * 100 : 0;
-  const sharpes = sessions.filter(s => s.sharpe_ratio).map(s => s.sharpe_ratio);
-  const sortinos = sessions.filter(s => s.sortino_ratio).map(s => s.sortino_ratio);
-  const calmars = sessions.filter(s => s.calmar_ratio).map(s => s.calmar_ratio);
-  const omegas = sessions.filter(s => s.omega_ratio).map(s => s.omega_ratio);
-  const drawdowns = sessions.filter(s => s.max_drawdown).map(s => s.max_drawdown);
-  const winRates = sessions.filter(s => s.win_rate).map(s => s.win_rate);
-  const avgSharpe = sharpes.length ? sharpes.reduce((a, b) => a + b) / sharpes.length : 0;
-  const avgSortino = sortinos.length ? sortinos.reduce((a, b) => a + b) / sortinos.length : 0;
-  const avgCalmar = calmars.length ? calmars.reduce((a, b) => a + b) / calmars.length : 0;
-  const avgOmega = omegas.length ? omegas.reduce((a, b) => a + b) / omegas.length : 0;
-  const worstDd = drawdowns.length ? Math.max(...drawdowns) : 0;
-  const avgWinRate = winRates.length ? winRates.reduce((a, b) => a + b) / winRates.length : 0;
-  const bestSession = [...sessions].sort((a, b) => b.pnl_value - a.pnl_value)[0];
-  const worstSession = [...sessions].sort((a, b) => a.pnl_value - b.pnl_value)[0];
-  const largestWin = Math.max(...sessions.map(s => s.largest_winning_trade || 0));
-  const largestLoss = Math.min(...sessions.map(s => -(s.largest_losing_trade || 0)));
-  const avgExpectancy = sessions.filter(s => s.expectancy).reduce((s, x) => s + x.expectancy, 0) / (sessions.filter(s => s.expectancy).length || 1);
+    let totalPnl = 0, totalTrades = 0, totalWins = 0, totalLosses = 0;
+    let totalFees = 0, totalGrossProfit = 0, totalGrossLoss = 0;
+    let profitSessions = 0;
+    const sharpes: number[] = [], sortinos: number[] = [], calmars: number[] = [], omegas: number[] = [], drawdowns: number[] = [], winRates: number[] = [];
+    let largestWin = 0, largestLoss = 0;
+    let bestSession: Session | undefined = undefined;
+    let worstSession: Session | undefined = undefined;
+    let expectancySum = 0, expectancyCount = 0;
+
+    let bestPnl = -Infinity;
+    let worstPnl = Infinity;
+
+    for (const s of sessions) {
+      const pnlUsd = toUsd(s.pnl_value || 0, s.currency);
+      totalPnl += pnlUsd;
+      totalTrades += s.total_trades || 0;
+      totalWins += s.total_winning_trades || 0;
+      totalLosses += s.total_losing_trades || 0;
+      totalFees += toUsd(s.fee || 0, s.currency);
+      totalGrossProfit += toUsd(s.gross_profit || 0, s.currency);
+      totalGrossLoss += toUsd(s.gross_loss || 0, s.currency);
+
+      if (pnlUsd > 0) profitSessions++;
+      if (s.sharpe_ratio) sharpes.push(s.sharpe_ratio);
+      if (s.sortino_ratio) sortinos.push(s.sortino_ratio);
+      if (s.calmar_ratio) calmars.push(s.calmar_ratio);
+      if (s.omega_ratio) omegas.push(s.omega_ratio);
+      if (s.max_drawdown) drawdowns.push(s.max_drawdown);
+      if (s.win_rate) winRates.push(s.win_rate);
+
+      if (s.expectancy) {
+        expectancySum += s.expectancy;
+        expectancyCount++;
+      }
+
+      if (pnlUsd > bestPnl) { bestPnl = pnlUsd; bestSession = s; }
+      if (pnlUsd < worstPnl) { worstPnl = pnlUsd; worstSession = s; }
+
+      const winTradeUsd = toUsd(s.largest_winning_trade || 0, s.currency);
+      const lossTradeUsd = toUsd(s.largest_losing_trade || 0, s.currency);
+      if (winTradeUsd > largestWin) largestWin = winTradeUsd;
+      const negLoss = -Math.abs(lossTradeUsd);
+      if (negLoss < largestLoss) largestLoss = negLoss;
+    }
+
+    const sessionWinRate = sessions.length ? (profitSessions / sessions.length) * 100 : 0;
+    const avgSharpe = sharpes.length ? sharpes.reduce((a, b) => a + b) / sharpes.length : 0;
+    const avgSortino = sortinos.length ? sortinos.reduce((a, b) => a + b) / sortinos.length : 0;
+    const avgCalmar = calmars.length ? calmars.reduce((a, b) => a + b) / calmars.length : 0;
+    const avgOmega = omegas.length ? omegas.reduce((a, b) => a + b) / omegas.length : 0;
+    const worstDd = drawdowns.length ? Math.max(...drawdowns) : 0;
+    const avgWinRate = winRates.length ? winRates.reduce((a, b) => a + b) / winRates.length : 0;
+    const avgExpectancy = expectancyCount > 0 ? expectancySum / expectancyCount : 0;
+
+    const backtestPnl = backtests.reduce((s, x) => s + toUsd(x.pnl_value || 0, x.currency), 0);
+    const livePaperPnl = liveSessions.reduce((s, x) => s + toUsd(x.pnl_value || 0, x.currency), 0);
+
+    return {
+      backtests, liveSessions, totalPnl, totalTrades, totalWins, totalLosses,
+      totalFees, totalGrossProfit, totalGrossLoss, profitSessions, sessionWinRate,
+      avgSharpe, avgSortino, avgCalmar, avgOmega, worstDd, avgWinRate,
+      bestSession, worstSession, largestWin, largestLoss, avgExpectancy,
+      backtestPnl, livePaperPnl
+    };
+  }, [sessions]);
 
   // ── strategy breakdown ───────────────────────────────────────────────────
-  const stratMap = new Map<string, StratRow>();
-  for (const s of sessions) {
-    const key = s.strategy || "Unknown";
-    if (!stratMap.has(key)) stratMap.set(key, { name: key, sessions: 0, pnl: 0, trades: 0, wins: 0, losses: 0, winRate: 0, sharpe: 0, sortino: 0, maxDd: 0, symbols: [] });
-    const r = stratMap.get(key)!;
-    r.sessions++;
-    r.pnl += s.pnl_value || 0;
-    r.trades += s.total_trades || 0;
-    r.wins += s.total_winning_trades || 0;
-    r.losses += s.total_losing_trades || 0;
-    if (s.sharpe_ratio) r.sharpe = (r.sharpe * (r.sessions - 1) + s.sharpe_ratio) / r.sessions;
-    if (s.sortino_ratio) r.sortino = (r.sortino * (r.sessions - 1) + s.sortino_ratio) / r.sessions;
-    if (s.max_drawdown && s.max_drawdown > r.maxDd) r.maxDd = s.max_drawdown;
-    if (s.symbol && !r.symbols.includes(s.symbol)) r.symbols.push(s.symbol);
-  }
-  for (const r of stratMap.values()) {
-    r.winRate = r.trades ? (r.wins / r.trades) * 100 : 0;
-    r.symbols = r.symbols.filter(Boolean).slice(0, 3);
-  }
-  const strategies = [...stratMap.values()].sort((a, b) => b.pnl - a.pnl);
+  const strategies = useMemo(() => {
+    const stratMap = new Map<string, StratRow>();
+    for (const s of sessions) {
+      const key = s.strategy || "Unknown";
+      if (!stratMap.has(key)) stratMap.set(key, { name: key, sessions: 0, pnl: 0, trades: 0, wins: 0, losses: 0, winRate: 0, sharpe: 0, sortino: 0, maxDd: 0, symbols: [] });
+      const r = stratMap.get(key)!;
+      r.sessions++;
+      r.pnl += toUsd(s.pnl_value || 0, s.currency);
+      r.trades += s.total_trades || 0;
+      r.wins += s.total_winning_trades || 0;
+      r.losses += s.total_losing_trades || 0;
+      if (s.sharpe_ratio) r.sharpe = (r.sharpe * (r.sessions - 1) + s.sharpe_ratio) / r.sessions;
+      if (s.sortino_ratio) r.sortino = (r.sortino * (r.sessions - 1) + s.sortino_ratio) / r.sessions;
+      if (s.max_drawdown && s.max_drawdown > r.maxDd) r.maxDd = s.max_drawdown;
+      if (s.symbol && !r.symbols.includes(s.symbol)) r.symbols.push(s.symbol);
+    }
+    for (const r of stratMap.values()) {
+      r.winRate = r.trades ? (r.wins / r.trades) * 100 : 0;
+      r.symbols = r.symbols.filter(Boolean).slice(0, 3);
+    }
+    return [...stratMap.values()].sort((a, b) => b.pnl - a.pnl);
+  }, [sessions]);
 
   // ── equity curve from best backtest session ──────────────────────────────
-  const bestCurveSession = backtests.find(s => s.equity_curve && s.equity_curve.length > 10);
-  const rawCurve = bestCurveSession?.equity_curve || [];
-  const sampledCurve = downsample(rawCurve, 120).map((v, i) => ({
-    i: `${i + 1}`,
-    equity: Math.round(v),
-    scaled: Math.round(BASE_EQUITY * (v / (rawCurve[rawCurve.length - 1] || 1))),
-  }));
+  const { sampledCurve, bestCurveSession, rawCurveLength } = useMemo(() => {
+    const session = backtests.find(s => s.equity_curve && s.equity_curve.length > 10);
+    const curve = session?.equity_curve || [];
+    const sampled = downsample(curve, 120).map((v, i) => ({
+      i: `${i + 1}`,
+      equity: Math.round(v),
+      scaled: Math.round(BASE_EQUITY * (v / (curve[curve.length - 1] || 1))),
+    }));
+    return { sampledCurve: sampled, bestCurveSession: session, rawCurveLength: curve.length };
+  }, [backtests]);
 
   // ── cumulative PnL + fund-flow curve (sessions + deposits/withdrawals) ───
-  const sortedSessions = [...sessions].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const { cumCurve, cumPnl, completedTxEvents, sortedSessions } = useMemo(() => {
+    const sorted = [...sessions].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-  // merge session events and completed transaction events, sorted chronologically
-  const completedTxEvents = transactions
-    .filter(tx => tx.status === "completed")
-    .map(tx => ({
-      date: tx.completed_at || tx.created_at,
-      kind: tx.type as "deposit" | "withdraw",
-      delta: tx.type === "deposit" ? toUsd(tx.amount, tx.currency) : -toUsd(tx.amount, tx.currency),
-      label: `${tx.type === "deposit" ? "Deposit" : "Withdrawal"}: ${tx.bank_name}`,
+    const completedTx = transactions
+      .filter(tx => tx.status === "completed")
+      .map(tx => ({
+        date: tx.completed_at || tx.created_at,
+        kind: tx.type as "deposit" | "withdraw",
+        delta: tx.type === "deposit" ? toUsd(tx.amount, tx.currency) : -toUsd(tx.amount, tx.currency),
+        label: `${tx.type === "deposit" ? "Deposit" : "Withdrawal"}: ${tx.bank_name}`,
+      }));
+
+    const sessionEvts = sorted.map(s => ({
+      date: s.created_at,
+      kind: "session" as const,
+      delta: toUsd(s.pnl_value || 0, s.currency),
+      label: s.strategy,
+      session: s,
     }));
 
-  const sessionEvents = sortedSessions.map(s => ({
-    date: s.created_at,
-    kind: "session" as const,
-    delta: toUsd(s.pnl_value || 0, s.currency),
-    label: s.strategy,
-    session: s,
-  }));
+    const evts = [...sessionEvts, ...completedTx]
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  const allEvents = [...sessionEvents, ...completedTxEvents]
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const curve = evts.reduce((acc, evt, i) => {
+      const currentCumPnl = acc.length > 0 ? acc[acc.length - 1].cumPnl : 0;
+      const newCumPnl = currentCumPnl + evt.delta;
+      acc.push({
+        label: `#${i + 1}`,
+        cumPnl: Math.round(newCumPnl),
+        pnl: Math.round(evt.delta),
+        strategy: evt.label,
+        isDeposit: evt.kind === "deposit",
+        isWithdraw: evt.kind === "withdraw",
+      });
+      return acc;
+    }, [] as any[]);
 
-  const cumCurve = allEvents.reduce((acc, evt, i) => {
-    const currentCumPnl = acc.length > 0 ? acc[acc.length - 1].cumPnl : 0;
-    const newCumPnl = currentCumPnl + evt.delta;
-    acc.push({
-      label: `#${i + 1}`,
-      cumPnl: Math.round(newCumPnl),
-      pnl: Math.round(evt.delta),
-      strategy: evt.label,
-      isDeposit: evt.kind === "deposit",
-      isWithdraw: evt.kind === "withdraw",
-    });
-    return acc;
-  }, [] as any[]);
-
-  const cumPnl = cumCurve.length > 0 ? cumCurve[cumCurve.length - 1].cumPnl : 0;
+    return {
+      cumCurve: curve,
+      cumPnl: curve.length > 0 ? curve[curve.length - 1].cumPnl : 0,
+      completedTxEvents: completedTx,
+      sortedSessions: sorted
+    };
+  }, [sessions, transactions]);
 
   // ── per-session drawdown chart (from sessions that have max_drawdown) ────
-  const ddChart = backtests.filter(s => s.max_drawdown).slice(0, 30).map((s, i) => ({
+  const ddChart = useMemo(() => backtests.filter(s => s.max_drawdown).slice(0, 30).map((s, i) => ({
     label: `#${i + 1}`,
     dd: -Math.abs(s.max_drawdown),
     strategy: s.strategy,
-  }));
+  })), [backtests]);
 
   // ── sessions sorted as "recent trades" ──────────────────────────────────
-  const recentSessions = [...sessions]
+  const recentSessions = useMemo(() => [...sessions]
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 15);
+    .slice(0, 15), [sessions]);
 
   // ── allocation from strategies ───────────────────────────────────────────
-  const totalAbsPnl = strategies.reduce((s, x) => s + Math.abs(x.pnl), 0) || 1;
-  const allocData = strategies
-    .filter(s => s.pnl !== 0 || s.trades > 0)
-    .slice(0, 6)
-    .map(s => ({ name: s.name.slice(0, 18), value: Math.round((Math.abs(s.pnl) / totalAbsPnl) * 100) || Math.round((s.trades / totalTrades) * 100) }));
-
-  // separate simulated (backtest) vs real (live/paper) PnL
-  const backtestPnl = backtests.reduce((s, x) => s + toUsd(x.pnl_value || 0, x.currency), 0);
-  const livePaperPnl = liveSessions.reduce((s, x) => s + toUsd(x.pnl_value || 0, x.currency), 0);
+  const allocData = useMemo(() => {
+    const totalAbsPnl = strategies.reduce((s, x) => s + Math.abs(x.pnl), 0) || 1;
+    return strategies
+      .filter(s => s.pnl !== 0 || s.trades > 0)
+      .slice(0, 6)
+      .map(s => ({ name: s.name.slice(0, 18), value: Math.round((Math.abs(s.pnl) / totalAbsPnl) * 100) || Math.round((s.trades / totalTrades) * 100) }));
+  }, [strategies, totalTrades]);
 
   const dayPnlPct = equity > 0 ? (dayPnl / (equity - dayPnl)) * 100 : 0;
   // use Alpaca account data when available, otherwise derive from equity
@@ -640,7 +695,7 @@ export default function PortfolioPage() {
                       <BarChart2 size={18} className="text-blue-400" /> Best Backtest Equity Curve
                     </h2>
                     <p className="text-slate-500 text-xs mt-0.5">
-                      Strategy: <span className="text-white">{bestCurveSession?.strategy}</span> · {bestCurveSession?.symbol} · {bestCurveSession?.timeframe} · {rawCurve.length} candles
+                      Strategy: <span className="text-white">{bestCurveSession?.strategy}</span> · {bestCurveSession?.symbol} · {bestCurveSession?.timeframe} · {rawCurveLength} candles
                     </p>
                   </div>
                 </div>
@@ -1063,9 +1118,8 @@ export default function PortfolioPage() {
                         <tr key={tx.id} className="hover:bg-slate-800/30 transition-colors">
                           <td className="py-3 font-mono text-xs text-slate-400">{tx.reference}</td>
                           <td className="py-3">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
-                              tx.type === "deposit" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-                            }`}>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${tx.type === "deposit" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+                              }`}>
                               {tx.type === "deposit" ? <ArrowDownToLine size={9} /> : <ArrowUpFromLine size={9} />}
                               {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
                             </span>
@@ -1081,11 +1135,10 @@ export default function PortfolioPage() {
                             <p className="text-slate-600 text-xs">{tx.currency}</p>
                           </td>
                           <td className="py-3 text-center">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                              tx.status === "completed" ? "bg-emerald-500/10 text-emerald-400" :
-                              tx.status === "failed" ? "bg-red-500/10 text-red-400" :
-                              "bg-yellow-500/10 text-yellow-400"
-                            }`}>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${tx.status === "completed" ? "bg-emerald-500/10 text-emerald-400" :
+                                tx.status === "failed" ? "bg-red-500/10 text-red-400" :
+                                  "bg-yellow-500/10 text-yellow-400"
+                              }`}>
                               {tx.status === "completed" ? <CheckCircle2 size={9} /> : tx.status === "failed" ? <X size={9} /> : <AlertCircle size={9} />}
                               {tx.status.charAt(0).toUpperCase() + tx.status.slice(1)}
                             </span>
@@ -1206,9 +1259,8 @@ export default function PortfolioPage() {
                         setTxPending(data);
                         setOtpInput("");
                       }}
-                      className={`w-full py-3 rounded-xl font-black text-sm transition-all ${
-                        showDepositModal ? "bg-emerald-500 hover:bg-emerald-400 text-black" : "bg-red-500 hover:bg-red-400 text-white"
-                      } disabled:opacity-50`}
+                      className={`w-full py-3 rounded-xl font-black text-sm transition-all ${showDepositModal ? "bg-emerald-500 hover:bg-emerald-400 text-black" : "bg-red-500 hover:bg-red-400 text-white"
+                        } disabled:opacity-50`}
                     >
                       {txSubmitting ? "Processing…" : showDepositModal ? "Request Deposit" : "Request Withdrawal"}
                     </button>
@@ -1273,9 +1325,8 @@ export default function PortfolioPage() {
                           setTxPending(null); setOtpInput("");
                           fetchTransactions();
                         }}
-                        className={`py-3 rounded-xl font-black text-sm transition-all ${
-                          showDepositModal ? "bg-emerald-500 hover:bg-emerald-400 text-black" : "bg-red-500 hover:bg-red-400 text-white"
-                        } disabled:opacity-40`}
+                        className={`py-3 rounded-xl font-black text-sm transition-all ${showDepositModal ? "bg-emerald-500 hover:bg-emerald-400 text-black" : "bg-red-500 hover:bg-red-400 text-white"
+                          } disabled:opacity-40`}
                       >
                         {txSubmitting ? "Verifying…" : "Confirm"}
                       </button>

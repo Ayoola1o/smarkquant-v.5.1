@@ -53,25 +53,32 @@ const Sidebar = () => {
 
             {/* Sidebar */}
             <div
-                className={`fixed top-0 left-0 h-screen bg-slate-900 text-white border-r border-slate-800 p-4 transition-all duration-300 z-40 ${
-                    isOpen ? "w-64" : "-translate-x-full md:translate-x-0 md:w-64"
-                } md:translate-x-0`}
+                className={`fixed top-0 left-0 h-screen bg-slate-900 text-white border-r border-slate-800 p-4 transition-all duration-300 z-40 ${isOpen ? "w-64 translate-x-0" : "-translate-x-full md:translate-x-0 md:w-20"
+                    }`}
             >
-                <Link href="/dashboard" className="text-2xl font-bold mb-8 px-2 flex items-center gap-2 hover:opacity-80 transition-opacity">
-                    <img src="/favicon.svg" alt="SmarkQuant" className="w-10 h-10" />
-                    <span className={`${!isOpen ? "hidden" : ""} transition-opacity`}>SmarkQuant</span>
-                </Link>
+                <div className={`flex items-center ${isOpen ? 'justify-between' : 'justify-center'} mb-8 ${isOpen ? 'px-2' : ''}`}>
+                    {isOpen && (
+                        <Link href="/dashboard" className="text-2xl font-bold flex items-center gap-2 hover:opacity-80 transition-opacity overflow-hidden">
+                            <img src="/favicon.svg" alt="SmarkQuant" className="w-10 h-10 flex-shrink-0" />
+                            <span className="truncate">SmarkQuant</span>
+                        </Link>
+                    )}
+                    <button onClick={toggleSidebar} className="hidden md:flex items-center justify-center p-2 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition-colors">
+                        <Menu size={24} />
+                    </button>
+                </div>
 
-                <nav className="space-y-2 pb-20 overflow-y-auto max-h-[calc(100vh-120px)]">
+                <nav className="space-y-2 pb-20 overflow-y-auto max-h-[calc(100vh-120px)] overflow-x-hidden">
                     {navItems.map((item) => (
                         <Link
                             key={item.href}
                             href={item.href}
-                            className={`flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors ${item.color || ""}`}
+                            className={`flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors ${item.color || ""} ${!isOpen ? 'justify-center' : ''}`}
                             onClick={() => isMobile && toggleSidebar()}
+                            title={!isOpen ? item.label : undefined}
                         >
                             <item.icon size={20} className="flex-shrink-0" />
-                            <span className="whitespace-nowrap">{item.label}</span>
+                            <span className={`whitespace-nowrap transition-all duration-300 ${!isOpen ? "hidden" : "block"}`}>{item.label}</span>
                         </Link>
                     ))}
                 </nav>
@@ -79,10 +86,11 @@ const Sidebar = () => {
                 <div className="absolute bottom-4 left-4 right-4">
                     <button
                         onClick={() => window.location.href = '/'}
-                        className="w-full flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
+                        className={`w-full flex items-center gap-3 p-2 rounded hover:bg-slate-800 transition-colors text-slate-400 hover:text-white ${!isOpen ? 'justify-center' : ''}`}
+                        title={!isOpen ? "Logout" : undefined}
                     >
                         <LogOut size={20} className="flex-shrink-0" />
-                        <span>Logout</span>
+                        <span className={`${!isOpen ? 'hidden' : 'block'}`}>Logout</span>
                     </button>
                 </div>
             </div>

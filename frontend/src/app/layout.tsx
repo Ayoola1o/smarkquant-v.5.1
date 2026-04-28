@@ -7,7 +7,7 @@ import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 import { Toaster } from "sonner";
 import { AuthProvider } from "../../lib/auth-context";
-import { SidebarProvider } from "@/lib/sidebar-context";
+import { SidebarProvider, useSidebar } from "@/lib/sidebar-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -23,6 +23,16 @@ const geistMono = Geist_Mono({
 //   title: "SmarkQuant - Quant Trading Platform",
 //   description: "Advanced Jesse Framework GUI & Quant Research Extension",
 // };
+
+function MainContent({ children, hideSidebar }: { children: React.ReactNode, hideSidebar: boolean }) {
+  const { isOpen } = useSidebar();
+
+  return (
+    <main className={`min-h-screen transition-all duration-300 ${hideSidebar ? "" : (isOpen ? "md:ml-64" : "md:ml-20")} p-4 md:p-6`}>
+      {children}
+    </main>
+  );
+}
 
 export default function RootLayout({
   children,
@@ -53,9 +63,9 @@ export default function RootLayout({
         <AuthProvider>
           <SidebarProvider>
             {!hideSidebar && <Sidebar />}
-            <main className={`min-h-screen transition-all duration-300 ${hideSidebar ? "" : "md:ml-64"} p-4 md:p-6`}>
+            <MainContent hideSidebar={hideSidebar}>
               {children}
-            </main>
+            </MainContent>
             <Toaster position="bottom-right" richColors theme="dark" />
           </SidebarProvider>
         </AuthProvider>

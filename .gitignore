@@ -72,3 +72,5 @@ build/
 out/
 .turbo/
 .env*.local
+backend/__pycache__/transactions.cpython-312.pyc
+backend/__pycache__/strategy_engine.cpython-312.pyc

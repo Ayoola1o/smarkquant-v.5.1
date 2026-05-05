@@ -17,9 +17,56 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), "storage", "json")
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_candles(start_date: str, finish_date: str, symbol: str = "", exchange: str = "") -> pd.DataFrame:
+def load_candles(start_date: str, finish_date: str, symbol: str = "", exchange: str = "", perturb_data: bool = False) -> pd.DataFrame:
+    # 1. Try loading from SQLite first
+    df = _query_db(start_date, finish_date, symbol, exchange)
+    
+    if perturb_data and not df.empty:
+        print("[INFO] Applying candle perturbation (Monte Carlo Candle Based)...")
+        from monte_carlo import MonteCarloEngine
+        # Convert df to records, perturb, and convert back
+        records = df.reset_index().to_dict('records')
+        perturbed_records = MonteCarloEngine.candle_perturbation(records, noise_factor=0.002) # 0.2% noise
+        df = pd.DataFrame(perturbed_records).set_index("date")
+    
+    # 2. If empty and we have an exchange (not "db" or local), try on-the-fly import
+    if df.empty and symbol and exchange and exchange.lower() not in ["db", "local", "sqlite"]:
+        print(f"[INFO] Data missing for {symbol} on {exchange}. Attempting on-the-fly import...")
+        try:
+            if exchange.lower() == "alpaca":
+                from alpaca_importer import import_alpaca_stock, import_alpaca_crypto
+                # Determine type
+                crypto_bases = {"BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "AVAX", "DOT", "LINK", "LTC", "DOGE"}
+                base = symbol.split("-")[0].upper()
+                if base in crypto_bases:
+                    import_alpaca_crypto(symbol, start_date, exchange="alpaca")
+                else:
+                    import_alpaca_stock(symbol, start_date, exchange="alpaca")
+            elif exchange.lower() == "yfinance":
+                from yfinance_importer import import_yfinance
+                import_yfinance(symbol, start_date, exchange="yfinance")
+            
+            # Try reloading from DB after import
+            df = _query_db(start_date, finish_date, symbol, exchange)
+        except Exception as e:
+            print(f"[ERROR] On-the-fly import failed: {e}")
+
+    if df.empty:
+        # Fallback to local check if source failed
+        avail = _list_available_symbols()
+        print(f"[WARNING] No candles found for {symbol or 'any symbol'} between {start_date} and {finish_date}.")
+        if avail:
+            print(f"[INFO] Available symbols in DB: {', '.join(avail)}")
+        return df
+
+    df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
+    df = df.set_index("date")
+    print(f"[OK] Loaded {len(df)} candles for {symbol or 'all'} from {start_date} to {finish_date}")
+    return df
+
+
+def _query_db(start_date: str, finish_date: str, symbol: str = "", exchange: str = "") -> pd.DataFrame:
     if not os.path.exists(DB_PATH):
-        print(f"[ERROR] Database not found at {DB_PATH}. Please import candles first.")
         return pd.DataFrame()
 
     conn = sqlite3.connect(DB_PATH)
@@ -31,34 +78,13 @@ def load_candles(start_date: str, finish_date: str, symbol: str = "", exchange: 
     if symbol:
         conditions.append("symbol = ?")
         params.append(symbol)
-    if exchange:
+    if exchange and exchange.lower() not in ["db", "local", "any"]:
         conditions.append("exchange = ?")
         params.append(exchange)
 
     query = f"SELECT * FROM candle WHERE {' AND '.join(conditions)} ORDER BY timestamp ASC"
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
-
-    if df.empty and symbol:
-        conn = sqlite3.connect(DB_PATH)
-        fallback = "SELECT * FROM candle WHERE timestamp >= ? AND timestamp <= ? AND symbol = ? ORDER BY timestamp ASC"
-        df = pd.read_sql_query(fallback, conn, params=[start_ts, finish_ts, symbol])
-        conn.close()
-        if not df.empty:
-            print(f"[INFO] Found {len(df)} candles for {symbol} (any exchange)")
-
-    if df.empty:
-        avail = _list_available_symbols()
-        print(f"[WARNING] No candles found for {symbol or 'any symbol'} between {start_date} and {finish_date}.")
-        if avail:
-            print(f"[INFO] Available symbols in DB: {', '.join(avail)}")
-        else:
-            print("[INFO] Database is empty. Please import candle data first using the Data tab.")
-        return df
-
-    df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
-    df = df.set_index("date")
-    print(f"[OK] Loaded {len(df)} candles for {symbol or 'all'} from {start_date} to {finish_date}")
     return df
 
 
@@ -78,7 +104,7 @@ def _list_available_symbols() -> list:
 # Metrics
 # ---------------------------------------------------------------------------
 
-def compute_metrics(trades: list, equity_curve: list, initial_capital: float, fee_total: float) -> dict:
+def compute_metrics(trades: list, equity_curve: list, initial_capital: float, fee_total: float, start_date: str = "", finish_date: str = "") -> dict:
     eq = np.array(equity_curve, dtype=float)
     final_equity = eq[-1] if len(eq) else initial_capital
     net_profit_val = final_equity - initial_capital
@@ -94,6 +120,7 @@ def compute_metrics(trades: list, equity_curve: list, initial_capital: float, fe
     avg_win_loss = avg_win / avg_loss if avg_loss else 0.0
     gross_profit = sum(t["pnl"] for t in wins)
     gross_loss = sum(t["pnl"] for t in losses)
+    profit_factor = gross_profit / abs(gross_loss) if gross_loss != 0 else (gross_profit if gross_profit > 0 else 0)
 
     expectancy = win_rate * avg_win - (1 - win_rate) * avg_loss if (wins or losses) else 0.0
     expectancy_pct = expectancy / initial_capital * 100
@@ -131,37 +158,111 @@ def compute_metrics(trades: list, equity_curve: list, initial_capital: float, fe
             cur_streak = cur_streak - 1 if cur_streak < 0 else -1
             max_loss_streak = max(max_loss_streak, abs(cur_streak))
 
+    # Calculate Annual Statistics
+    annual_return = 0.0
+    if start_date and finish_date:
+        try:
+            d1 = datetime.strptime(start_date, "%Y-%m-%d")
+            d2 = datetime.strptime(finish_date, "%Y-%m-%d")
+            years = (d2 - d1).days / 365.25
+            if years > 0:
+                annual_return = ((final_equity / initial_capital) ** (1/years) - 1) * 100
+        except: pass
+
+    # Calculate Monthly Returns
+    monthly_returns = {}
+    if trades:
+        for t in trades:
+            dt = datetime.fromtimestamp(t.get("exit_time", 0))
+            key = dt.strftime("%Y-%m")
+            monthly_returns[key] = monthly_returns.get(key, 0.0) + t.get("pnl_pct", 0.0)
+    
+    # Calculate Worst 5 Drawdown Periods
+    dd_df = pd.DataFrame({"equity": eq})
+    dd_df["peak"] = dd_df["equity"].cummax()
+    dd_df["dd"] = (dd_df["equity"] - dd_df["peak"]) / dd_df["peak"]
+    
+    worst_drawdowns = []
+    is_in_dd = False
+    dd_start = 0
+    for i, row in dd_df.iterrows():
+        if row["dd"] < 0:
+            if not is_in_dd:
+                is_in_dd = True
+                dd_start = i
+        else:
+            if is_in_dd:
+                is_in_dd = False
+                period_dd = dd_df.iloc[dd_start:i+1]
+                max_dd_val = float(abs(period_dd["dd"].min()))
+                worst_drawdowns.append({
+                    "start": dd_start,
+                    "end": i,
+                    "max_dd": round(max_dd_val * 100, 2),
+                    "duration": i - dd_start
+                })
+    
+    worst_drawdowns = sorted(worst_drawdowns, key=lambda x: x["max_dd"], reverse=True)[:5]
+
+    # Trade PnL Distribution (Bins)
+    pnl_dist = []
+    if trades:
+        pnls = [t["pnl_pct"] for t in trades]
+        hist, bin_edges = np.histogram(pnls, bins=10)
+        for i in range(len(hist)):
+            pnl_dist.append({
+                "bin": f"{bin_edges[i]:.1f}% to {bin_edges[i+1]:.1f}%",
+                "count": int(hist[i])
+            })
+
     return {
+        "performance": {
+            "net_profit": round(net_profit_pct, 4),
+            "net_profit_val": round(net_profit_val, 2),
+            "annual_return": round(annual_return, 4),
+            "sharpe_ratio": round(sharpe, 4),
+            "sortino_ratio": round(sortino, 4),
+            "calmar_ratio": round(calmar, 4),
+            "omega_ratio": round(omega, 4),
+            "expectancy": round(expectancy, 2),
+            "expectancy_pct": round(expectancy_pct, 4),
+            "final_equity": round(final_equity, 2),
+        },
+        "risk": {
+            "max_drawdown": round(max_drawdown, 4),
+            "largest_win": round(largest_win, 2),
+            "largest_loss": round(largest_loss, 2),
+            "total_winning_streak": max_win_streak,
+            "total_losing_streak": max_loss_streak,
+            "current_streak": cur_streak,
+            "fee": round(fee_total, 2),
+            "worst_drawdowns": worst_drawdowns,
+        },
+        "trading_stats": {
+            "total_trades": total,
+            "win_rate": round(win_rate, 4),
+            "winning_trades": len(wins),
+            "losing_trades": len(losses),
+            "avg_win": round(avg_win, 2),
+            "avg_loss": round(avg_loss, 2),
+            "avg_win_loss": round(avg_win_loss, 4),
+            "gross_profit": round(gross_profit, 2),
+            "gross_loss": round(gross_loss, 2),
+            "profit_factor": round(profit_factor, 4),
+            "avg_holding_period": round(avg_holding, 2),
+            "pnl_distribution": pnl_dist,
+        },
+        "monthly_returns": monthly_returns,
+        # Keep legacy flat structure for some components
         "net_profit": round(net_profit_pct, 4),
-        "net_profit_val": round(net_profit_val, 2),
-        "win_rate": round(win_rate, 4),
-        "max_drawdown": round(max_drawdown, 4),
         "total_trades": total,
-        "initial_capital": initial_capital,
-        "final_equity": round(final_equity, 2),
+        "max_drawdown": round(max_drawdown, 4),
+        "win_rate": round(win_rate, 4),
         "sharpe_ratio": round(sharpe, 4),
         "sortino_ratio": round(sortino, 4),
         "calmar_ratio": round(calmar, 4),
-        "omega_ratio": round(omega, 4),
-        "smart_sharpe": 0.0,
-        "smart_sortino": 0.0,
-        "serenity_index": 0.0,
-        "avg_win": round(avg_win, 2),
-        "avg_loss": round(avg_loss, 2),
-        "avg_win_loss": round(avg_win_loss, 4),
-        "gross_profit": round(gross_profit, 2),
-        "gross_loss": round(gross_loss, 2),
-        "expectancy": round(expectancy, 2),
-        "expectancy_pct": round(expectancy_pct, 4),
-        "avg_holding_period": round(avg_holding, 2),
-        "largest_win": round(largest_win, 2),
-        "largest_loss": round(largest_loss, 2),
-        "total_winning_streak": max_win_streak,
-        "total_losing_streak": max_loss_streak,
-        "current_streak": cur_streak,
-        "winning_trades": len(wins),
-        "losing_trades": len(losses),
-        "fee": round(fee_total, 2),
+        "initial_capital": initial_capital,
+        "final_equity": round(final_equity, 2),
     }
 
 
@@ -207,7 +308,9 @@ def simulate(df: pd.DataFrame, long_signal: pd.Series, short_signal: pd.Series,
                     "win": pnl > 0,
                     "side": "long" if is_long else "short",
                     "holding": i - entry_idx,
-                    "exit_reason": "stop" if hit_stop else "tp",
+                    "entry_time": int(df.index[entry_idx].timestamp()),
+                    "exit_time": int(df.index[i].timestamp()),
+                    "exit_reason": "TP" if hit_tp else "SL"
                 })
                 capital += pnl
                 position = 0.0
@@ -278,7 +381,13 @@ def simulate(df: pd.DataFrame, long_signal: pd.Series, short_signal: pd.Series,
 # ---------------------------------------------------------------------------
 
 def run_strategy_backtest(df: pd.DataFrame, strategy_name: str,
-                          initial_capital: float = 10_000.0) -> dict | None:
+                          initial_capital: float = 10000.0,
+                          risk_pct: float = 3.0,
+                          atr_stop: float = 2.5,
+                          atr_tp: float = 3.2,
+                          fee_rate: float = 0.001,
+                          start_date: str = "",
+                          finish_date: str = "") -> dict | None:
     if len(df) < 30:
         print("[ERROR] Not enough candle data. Need at least 30 candles.")
         return None
@@ -291,8 +400,8 @@ def run_strategy_backtest(df: pd.DataFrame, strategy_name: str,
 
     result = simulate(df, long_sig, short_sig, atr,
                       initial_capital=initial_capital,
-                      risk_pct=3.0, atr_stop=2.5, atr_tp=3.2,
-                      fee_rate=0.001, allow_short=True)
+                      risk_pct=risk_pct, atr_stop=atr_stop, atr_tp=atr_tp,
+                      fee_rate=fee_rate, allow_short=True)
 
     trades = result["trades"]
     equity_curve = result["equity_curve"]
@@ -302,7 +411,7 @@ def run_strategy_backtest(df: pd.DataFrame, strategy_name: str,
         print(f"[WARNING] Strategy '{strategy_name}' produced 0 trades on this data. "
               "Try a longer date range or different timeframe.")
 
-    metrics = compute_metrics(trades, equity_curve, initial_capital, fee_total)
+    metrics = compute_metrics(trades, equity_curve, initial_capital, fee_total, start_date, finish_date)
 
     print(f"[OK] Backtest complete:")
     print(f"     Trades:       {metrics['total_trades']}")
@@ -312,10 +421,43 @@ def run_strategy_backtest(df: pd.DataFrame, strategy_name: str,
     print(f"     Max Drawdown: {metrics['max_drawdown']:.2f}%")
     print(f"     Final Equity: ${metrics['final_equity']:.2f}")
 
+    # Include price and equity data for charting
+    price_data = df[['open', 'high', 'low', 'close']].reset_index()
+    # Explicitly convert to unix seconds
+    price_data['time'] = (price_data['date'].astype('int64') // 10**9).astype(int)
+    
+    eq_list = []
+    benchmark_list = []
+    times = price_data['time'].tolist()
+    
+    if not df.empty:
+        first_price = float(df['close'].iloc[0])
+        for i in range(min(len(times), len(df))):
+            # Strategy Equity
+            if i < len(equity_curve):
+                eq_list.append({"time": times[i], "value": float(equity_curve[i])})
+            
+            # Benchmark (Buy & Hold)
+            bench_val = initial_capital * (float(df['close'].iloc[i]) / first_price)
+            benchmark_list.append({"time": times[i], "value": round(bench_val, 2)})
+
+    chart_candles = price_data[['time', 'open', 'high', 'low', 'close']].to_dict('records')
+    
+    # Downsample if too many candles (keep chart smooth)
+    if len(chart_candles) > 3000:
+        step = len(chart_candles) // 2000
+        chart_candles = chart_candles[::step]
+        eq_list = eq_list[::step]
+        benchmark_list = benchmark_list[::step]
+
     return {
         "metrics": metrics,
-        "charts": {"equity": equity_curve},
-        "trades": [_fmt(t) for t in trades[:200]],
+        "trades": trades,
+        "charts": {
+            "equity": eq_list,
+            "benchmark": benchmark_list,
+            "candles": chart_candles
+        },
         "strategy": strategy_name,
     }
 
@@ -333,21 +475,60 @@ def _fmt(t: dict) -> dict:
     }
 
 
+def save_csv_exports(results: dict, base_path: str):
+    """Save trades and equity curve to CSV files for export."""
+    try:
+        # Trades CSV
+        trades = results.get("trades", [])
+        if trades:
+            trades_df = pd.DataFrame(trades)
+            trades_df.to_csv(base_path.replace(".json", "_trades.csv"), index=False)
+        
+        # Equity CSV
+        equity = results.get("charts", {}).get("equity", [])
+        if equity:
+            equity_df = pd.DataFrame({"tick": range(len(equity)), "equity": equity})
+            equity_df.to_csv(base_path.replace(".json", "_equity.csv"), index=False)
+            
+        print(f"[OK] CSV exports saved alongside {os.path.basename(base_path)}")
+    except Exception as e:
+        print(f"[WARN] Failed to save CSV exports: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def run_backtest(start_date: str, finish_date: str, strategy_name: str = "",
-                 symbol: str = "", exchange: str = ""):
+                 symbol: str = "", exchange: str = "", 
+                 initial_capital: float = 10000.0,
+                 risk_pct: float = 3.0,
+                 atr_stop: float = 2.5,
+                 atr_tp: float = 3.2,
+                 fee_rate: float = 0.001,
+                 result_id: str = "",
+                 perturb_data: bool = False):
     label = strategy_name or "SMA Crossover"
-    print(f"[INFO] Starting backtest: {start_date} → {finish_date}")
+    print(f"[INFO] Starting backtest: {start_date} -> {finish_date}")
+    if perturb_data:
+        print("[INFO] MODE: Candle Based Monte Carlo (Data Perturbation ON)")
     print(f"[INFO] Strategy: {label} | Asset: {symbol or 'all assets'}")
+    print(f"[INFO] Params: cap={initial_capital}, risk={risk_pct}%, stop={atr_stop}, tp={atr_tp}, fee={fee_rate}")
 
-    df = load_candles(start_date, finish_date, symbol=symbol, exchange=exchange)
+    df = load_candles(start_date, finish_date, symbol=symbol, exchange=exchange, perturb_data=perturb_data)
     if df.empty:
         sys.exit(1)
 
-    results = run_strategy_backtest(df, label)
+    results = run_strategy_backtest(
+        df, label, 
+        initial_capital=initial_capital,
+        risk_pct=risk_pct,
+        atr_stop=atr_stop,
+        atr_tp=atr_tp,
+        fee_rate=fee_rate,
+        start_date=start_date,
+        finish_date=finish_date
+    )
     if results is None:
         sys.exit(1)
 
@@ -356,11 +537,13 @@ def run_backtest(start_date: str, finish_date: str, strategy_name: str = "",
     results["exchange"] = exchange or "any"
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    filename = f"backtest_{start_date}_{finish_date}_{uuid.uuid4().hex[:8]}.json"
+    rid = result_id or uuid.uuid4().hex[:8]
+    filename = f"backtest_{start_date}_{finish_date}_{rid}.json"
     filepath = os.path.join(RESULTS_DIR, filename)
     with open(filepath, "w") as f:
         json.dump(results, f, indent=2)
 
+    save_csv_exports(results, filepath)
     print(f"[OK] Results saved to {filepath}")
 
     try:
@@ -398,4 +581,11 @@ if __name__ == "__main__":
         sys.argv[3] if len(sys.argv) > 3 else "",
         sys.argv[4] if len(sys.argv) > 4 else "",
         sys.argv[5] if len(sys.argv) > 5 else "",
+        float(sys.argv[6]) if len(sys.argv) > 6 else 10000.0,
+        float(sys.argv[7]) if len(sys.argv) > 7 else 3.0,
+        float(sys.argv[8]) if len(sys.argv) > 8 else 2.5,
+        float(sys.argv[9]) if len(sys.argv) > 9 else 3.2,
+        float(sys.argv[10]) if len(sys.argv) > 10 else 0.001,
+        sys.argv[11] if len(sys.argv) > 11 else "",
+        sys.argv[12].lower() == 'true' if len(sys.argv) > 12 else False
     )

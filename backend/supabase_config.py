@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 # Load environment variables
 root_env = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
-load_dotenv(dotenv_path=root_env, override=False)
+load_dotenv(dotenv_path=root_env, override=True)
 
 # Supabase configuration
 SUPABASE_URL = os.getenv('SUPABASE_URL')
@@ -24,13 +24,14 @@ def verify_supabase_token(token: str) -> dict:
     """Verify Supabase JWT token and return user information"""
     try:
         # Use Supabase's built-in JWT verification
-        from supabase.lib.auth import Auth
-        auth = Auth(supabase)
-        user = auth.get_user(token)
+        response = supabase.auth.get_user(token)
+        user = response.user
         return {
-            'user_id': user.id,
+            'id': str(user.id),
+            'user_id': str(user.id),
+            'sub': str(user.id),
             'email': user.email,
-            'role': user.role,
+            'role': user.role if hasattr(user, 'role') else 'authenticated',
         }
     except Exception as e:
         raise ValueError(f"Invalid token: {str(e)}")

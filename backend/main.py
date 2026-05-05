@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, Query, Request, Depends, Header
+from fastapi import FastAPI, HTTPException, Query, Request, Depends, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import os
@@ -9,8 +10,11 @@ import json
 import shutil
 import threading
 import time
+import sys
+import shlex
+import uuid
 from bot_manager import bot_manager
-from alpaca_utils import get_alpaca_credentials
+from alpaca_utils import get_alpaca_credentials, get_user_alpaca_credentials
 from db_config import DB_PATH
 from trade_history import (
     init_history_table, save_session, list_sessions,
@@ -21,9 +25,10 @@ from transactions import (
     verify_otp, list_transactions, get_transaction_summary
 )
 from supabase_config import get_supabase_client, verify_supabase_token
+from monte_carlo import MonteCarloEngine
 
 root_env = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
-load_dotenv(dotenv_path=root_env, override=False)
+load_dotenv(dotenv_path=root_env, override=True)
 app = FastAPI(title="Quant Trading Platform API")
 
 # Supabase Auth setup
@@ -38,6 +43,7 @@ class JesseProcessManager:
         self.last_command = ""
         self.start_time = 0
         self.finish_time = 0
+        self.exit_code = None
 
     def run_command(self, command, cwd):
         if self.is_running:
@@ -48,16 +54,19 @@ class JesseProcessManager:
         self.last_command = command
         self.start_time = time.time()
         self.finish_time = 0
+        self.exit_code = None
 
         def runner():
             try:
+                # Use shell=True for string commands, shell=False for lists (safer on Windows)
+                is_shell = isinstance(command, str)
                 self.process = subprocess.Popen(
                     command,
                     cwd=cwd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    shell=True
+                    shell=is_shell
                 )
                 for line in self.process.stdout:
                     self.logs.append(line)
@@ -65,8 +74,10 @@ class JesseProcessManager:
                         self.logs.pop(0)
                 
                 self.process.wait()
+                self.exit_code = self.process.returncode
             except Exception as e:
                 self.logs.append(f"CRITICAL ERROR: {str(e)}")
+                self.exit_code = -1
             finally:
                 self.is_running = False
                 self.finish_time = time.time()
@@ -81,6 +92,7 @@ class JesseProcessManager:
             "is_running": self.is_running,
             "logs": self.logs[-50:], # Return last 50 logs for polling
             "last_command": self.last_command,
+            "exit_code": self.exit_code,
             "runtime": round(time.time() - self.start_time, 2) if self.is_running else round(self.finish_time - self.start_time, 2)
         }
 
@@ -143,12 +155,15 @@ async def get_user_profile(user_info: dict = Depends(get_current_user)):
     try:
         supabase = get_supabase_client()
         
+        # Use the ID from user_info (which we ensured has 'id', 'user_id', and 'sub')
+        user_id = user_info.get("id") or user_info.get("user_id") or user_info.get("sub")
+        
         response = supabase.from_("user_profiles").select(
             "id, email, display_name, avatar_url, created_at, updated_at, preferences"
-        ).eq("id", user_info.get("sub")).single().execute()
+        ).eq("id", user_id).execute()
         
-        if response.data:
-            return {"status": "ok", "profile": response.data}
+        if response.data and len(response.data) > 0:
+            return {"status": "ok", "profile": response.data[0]}
         else:
             return {"status": "error", "message": "Profile not found"}
     except Exception as e:
@@ -173,6 +188,11 @@ class BacktestRequest(BaseModel):
     strategy_name: str = ""
     symbol: str = ""
     exchange: str = ""
+    initial_capital: float = 10000.0
+    risk_pct: float = 3.0
+    atr_stop: float = 2.5
+    atr_tp: float = 3.2
+    fee_rate: float = 0.001
 
 class OptimizeRequest(BaseModel):
     start_date: str
@@ -189,22 +209,44 @@ def read_root():
     return {"status": "ok", "message": "Quant Platform API is running"}
 
 @app.get("/backtest/results")
-def get_backtest_results():
+def get_backtest_results(id: str = Query(default=None)):
     # Jesse saves JSON reports in /storage/json/
     json_dir = os.path.join("storage", "json")
     if not os.path.exists(json_dir):
         return {"results": None, "error": "No results found in storage/json"}
     
-    # Get the latest JSON file
     files = [os.path.join(json_dir, f) for f in os.listdir(json_dir) if f.endswith(".json")]
     if not files:
         return {"results": None}
     
-    latest_file = max(files, key=os.path.getmtime)
+    # If a specific ID is provided, look for it
+    if id:
+        target_files = [f for f in files if id in f]
+        if target_files:
+            latest_file = target_files[0]
+        else:
+            return {"results": None, "error": f"Result with ID {id} not found"}
+    else:
+        # Fallback to latest file
+        latest_file = max(files, key=os.path.getmtime)
+        
     with open(latest_file, "r") as f:
         data = json.load(f)
     
     return {"results": data, "filename": os.path.basename(latest_file)}
+
+@app.get("/backtest/download")
+def download_backtest_file(filename: str = Query(...)):
+    """Serve backtest result files (JSON or CSV) for download."""
+    json_dir = os.path.join("storage", "json")
+    # Basic security check
+    clean_name = os.path.basename(filename)
+    file_path = os.path.join(json_dir, clean_name)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    return FileResponse(file_path, filename=clean_name)
 
 # ---------------------------------------------------------------------------
 # Trading History Endpoints
@@ -275,12 +317,34 @@ def delete_history_session(session_id: str):
 # ---------------------------------------------------------------------------
 
 @app.get("/strategies")
-def list_strategies():
+def list_strategies(user: dict = Depends(get_current_user_optional)):
     if not os.path.exists(STRATEGIES_DIR):
         return {"strategies": []}
     
     strategies = [d for d in os.listdir(STRATEGIES_DIR) if os.path.isdir(os.path.join(STRATEGIES_DIR, d)) and not d.startswith("__")]
     return {"strategies": strategies}
+
+@app.get("/api/backtest/analysis/{result_id}")
+async def get_backtest_analysis(result_id: str):
+    storage_path = os.path.join(STORAGE_DIR, f"{result_id}.json")
+    if not os.path.exists(storage_path):
+        raise HTTPException(status_code=404, detail="Result not found")
+    
+    with open(storage_path, "r") as f:
+        data = json.load(f)
+    
+    # Trigger Monte Carlo
+    trades = data.get("trades", [])
+    if not trades:
+        return {"monte_carlo": None, "significance": None}
+    
+    mc = MonteCarloEngine.trade_shuffling(trades, iterations=100)
+    sig = MonteCarloEngine.rule_significance(trades)
+    
+    return {
+        "monte_carlo": mc,
+        "significance": sig
+    }
 
 @app.get("/strategies/{name}")
 def get_strategy(name: str):
@@ -428,13 +492,20 @@ def import_candles(req: CandleImportRequest):
     return {"status": "started", "message": message}
 
 @app.get("/alpaca/quote/{symbol}")
-def get_alpaca_quote(symbol: str):
+def get_alpaca_quote(symbol: str, user: dict = Depends(get_current_user_optional)):
     """Return latest trade price for a symbol from Alpaca."""
-    import os as _os
-    api_key = _os.environ.get("ALPACA_API_KEY", "")
-    secret_key = _os.environ.get("ALPACA_SECRET_KEY", "")
+    user_id = user.get("user_id") if user else None
+    api_key, secret_key = None, None
+    
+    if user_id:
+        api_key, secret_key = get_user_alpaca_credentials(user_id)
+        
+    if not api_key or not secret_key:
+        api_key, secret_key = get_alpaca_credentials()
+        
     if not api_key or not secret_key:
         raise HTTPException(status_code=503, detail="Alpaca API keys not configured")
+        
     try:
         from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
         from alpaca.data.requests import StockLatestTradeRequest, CryptoLatestTradeRequest
@@ -458,14 +529,26 @@ def get_alpaca_quote(symbol: str):
 
         return {"symbol": symbol, "price": price, "source": "alpaca"}
     except Exception as e:
+        from alpaca.common.exceptions import APIError
+        if isinstance(e, APIError):
+            status = 401 if "unauthorized" in str(e).lower() else 400
+            raise HTTPException(status_code=status, detail=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _get_alpaca_trading_client(paper: bool = False):
+def _get_alpaca_trading_client(paper: bool = False, user_id: str = None):
     """Helper: return an Alpaca TradingClient or raise 503."""
-    api_key, secret_key = get_alpaca_credentials()
+    api_key, secret_key = None, None
+    
+    if user_id:
+        api_key, secret_key = get_user_alpaca_credentials(user_id)
+        
     if not api_key or not secret_key:
-        raise HTTPException(status_code=503, detail="Alpaca API keys not configured. Add ALPACA_API_KEY and ALPACA_SECRET_KEY (or APCA_API_KEY_ID/APCA_API_SECRET_KEY) in environment variables.")
+        api_key, secret_key = get_alpaca_credentials()
+        
+    if not api_key or not secret_key:
+        raise HTTPException(status_code=503, detail="Alpaca API keys not configured. Add ALPACA_API_KEY and ALPACA_SECRET_KEY in environment variables or your profile settings.")
+        
     try:
         from alpaca.trading.client import TradingClient
         return TradingClient(api_key, secret_key, paper=paper)
@@ -474,9 +557,10 @@ def _get_alpaca_trading_client(paper: bool = False):
 
 
 @app.get("/alpaca/account")
-def get_alpaca_account(paper: bool = False):
+def get_alpaca_account(paper: bool = False, user: dict = Depends(get_current_user_optional)):
     """Return Alpaca account details (equity, cash, buying power, etc.)."""
-    tc = _get_alpaca_trading_client(paper=paper)
+    user_id = user.get("user_id") if user else None
+    tc = _get_alpaca_trading_client(paper=paper, user_id=user_id)
     try:
         acct = tc.get_account()
         return {
@@ -498,13 +582,19 @@ def get_alpaca_account(paper: bool = False):
     except HTTPException:
         raise
     except Exception as e:
+        # Check if it's an Alpaca API Error to propagate status code
+        from alpaca.common.exceptions import APIError
+        if isinstance(e, APIError):
+            status = 401 if "unauthorized" in str(e).lower() else 400
+            raise HTTPException(status_code=status, detail=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/alpaca/positions")
-def get_alpaca_positions(paper: bool = False):
+def get_alpaca_positions(paper: bool = False, user: dict = Depends(get_current_user_optional)):
     """Return all open Alpaca positions."""
-    tc = _get_alpaca_trading_client(paper=paper)
+    user_id = user.get("user_id") if user else None
+    tc = _get_alpaca_trading_client(paper=paper, user_id=user_id)
     try:
         positions = tc.get_all_positions()
         result = []
@@ -524,13 +614,18 @@ def get_alpaca_positions(paper: bool = False):
     except HTTPException:
         raise
     except Exception as e:
+        from alpaca.common.exceptions import APIError
+        if isinstance(e, APIError):
+            status = 401 if "unauthorized" in str(e).lower() else 400
+            raise HTTPException(status_code=status, detail=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/alpaca/orders")
-def get_alpaca_orders(paper: bool = False, limit: int = 20):
+def get_alpaca_orders(paper: bool = False, limit: int = 20, user: dict = Depends(get_current_user_optional)):
     """Return recent Alpaca orders."""
-    tc = _get_alpaca_trading_client(paper=paper)
+    user_id = user.get("user_id") if user else None
+    tc = _get_alpaca_trading_client(paper=paper, user_id=user_id)
     try:
         from alpaca.trading.requests import GetOrdersRequest
         from alpaca.trading.enums import QueryOrderStatus
@@ -555,20 +650,105 @@ def get_alpaca_orders(paper: bool = False, limit: int = 20):
     except HTTPException:
         raise
     except Exception as e:
+        from alpaca.common.exceptions import APIError
+        if isinstance(e, APIError):
+            status = 401 if "unauthorized" in str(e).lower() else 400
+            raise HTTPException(status_code=status, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/alpaca/cancel-all")
+def cancel_all_alpaca_orders(paper: bool = False, user: dict = Depends(get_current_user)):
+    """Cancel all open orders on Alpaca."""
+    user_id = user.get("user_id") if user else None
+    tc = _get_alpaca_trading_client(paper=paper, user_id=user_id)
+    try:
+        tc.cancel_orders()
+        return {"status": "success", "message": "All orders cancelled", "paper": paper}
+    except Exception as e:
+        from alpaca.common.exceptions import APIError
+        if isinstance(e, APIError):
+            status = 401 if "unauthorized" in str(e).lower() else 400
+            raise HTTPException(status_code=status, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/alpaca/close-all")
+def close_all_alpaca_positions(paper: bool = False, user: dict = Depends(get_current_user)):
+    """Close all open positions on Alpaca."""
+    user_id = user.get("user_id") if user else None
+    tc = _get_alpaca_trading_client(paper=paper, user_id=user_id)
+    try:
+        tc.close_all_positions(cancel_orders=True)
+        return {"status": "success", "message": "All positions closed and orders cancelled", "paper": paper}
+    except Exception as e:
+        from alpaca.common.exceptions import APIError
+        if isinstance(e, APIError):
+            status = 401 if "unauthorized" in str(e).lower() else 400
+            raise HTTPException(status_code=status, detail=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/backtest")
 async def run_backtest(req: BacktestRequest):
-    parts = ["python", "backtest_engine.py", req.start_date, req.finish_date,
-             req.strategy_name or "SMAcrossover",
-             req.symbol or "",
-             req.exchange or ""]
-    command = " ".join(parts)
-    success, message = jesse_mgr.run_command(command, os.getcwd())
+    result_id = uuid.uuid4().hex[:8]
+    
+    engine_path = os.path.join(os.path.dirname(__file__), "backtest_engine.py")
+    
+    # Build parts list with all 12 arguments expected by backtest_engine.py
+    parts = [
+        sys.executable, 
+        engine_path, 
+        req.start_date, 
+        req.finish_date,
+        req.strategy_name or "SMA Crossover",
+        req.symbol or "BTC-USD",
+        req.exchange or "alpaca",
+        str(req.initial_capital),
+        str(req.risk_pct),
+        str(req.atr_stop),
+        str(req.atr_tp),
+        str(req.fee_rate),
+        result_id,
+        "false" # perturb_data
+    ]
+    backend_dir = os.path.dirname(__file__)
+    success, message = jesse_mgr.run_command(parts, backend_dir)
     if not success:
         raise HTTPException(status_code=400, detail=message)
-    return {"status": "started", "message": message}
+    return {"status": "started", "message": message, "result_id": result_id}
+
+@app.get("/backtest/analysis/{result_id}")
+def get_backtest_analysis(result_id: str):
+    """Run Monte Carlo and Significance analysis on a past backtest."""
+    try:
+        from backtest_engine import RESULTS_DIR
+        filepath = os.path.join(RESULTS_DIR, f"backtest_*_{result_id}.json")
+        import glob
+        files = glob.glob(filepath)
+        if not files:
+            raise HTTPException(status_code=404, detail="Backtest results not found")
+        
+        with open(files[0], "r") as f:
+            data = json.load(f)
+        
+        trades = data.get("trades", [])
+        if not trades:
+            return {"error": "No trades to analyze"}
+            
+        # 1. Monte Carlo Shuffling (100 iterations)
+        shuffled_results = MonteCarloEngine.shuffle_trades(trades, iterations=100)
+        
+        # 2. Rule Significance (Bootstrapping)
+        significance = MonteCarloEngine.bootstrap_trades(trades, iterations=1000)
+        
+        return {
+            "result_id": result_id,
+            "monte_carlo": shuffled_results,
+            "significance": significance
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/jesse/backtest")
 def run_jesse_backtest(req: BacktestRequest):
@@ -578,7 +758,8 @@ def run_jesse_backtest(req: BacktestRequest):
         if importlib.util.find_spec("jesse") is not None:
             # Jenny expects strategy to be defined in routes/config according to Jesse rules
             strategy = req.strategy_name or ""
-            command = f"python -m jesse backtest {req.exchange} {req.symbol} {req.strategy_name} --start-date {req.start_date} --finish-date {req.finish_date}"
+            import sys
+            command = f"{sys.executable} -m jesse backtest {req.exchange} {req.symbol} {req.strategy_name} --start-date {req.start_date} --finish-date {req.finish_date}"
         else:
             raise ImportError("jesse module not available")
     except Exception as e:
@@ -607,7 +788,8 @@ def get_candle_symbols():
 
 @app.post("/optimize")
 async def run_optimize(req: OptimizeRequest):
-    command = f"python optimize_engine.py {req.start_date} {req.finish_date} {req.optimal_total}"
+    import sys
+    command = f"{sys.executable} optimize_engine.py {req.start_date} {req.finish_date} {req.optimal_total}"
     success, message = jesse_mgr.run_command(command, os.getcwd())
     if not success:
         raise HTTPException(status_code=400, detail=message)
@@ -618,12 +800,14 @@ def start_live(req: LiveRequest):
     # Try to launch native Jesse live mode if available, otherwise fall back to mock output.
     try:
         import importlib
+        import sys
         if importlib.util.find_spec("jesse") is not None:
-            command = f"python -m jesse live {req.exchange} {req.symbol}"
+            command = f"{sys.executable} -m jesse live {req.exchange} {req.symbol}"
         else:
             raise ImportError("jesse module not available")
     except Exception:
-        command = f"echo Starting live trading for {req.symbol} on {req.exchange}... && python -c \"import time; [print(f'Signal: BUY {req.symbol} at {100+i}') or time.sleep(2) for i in range(50)]\""
+        import sys
+        command = f"echo Starting live trading for {req.symbol} on {req.exchange}... && {sys.executable} -c \"import time; [print(f'Signal: BUY {req.symbol} at {100+i}') or time.sleep(2) for i in range(50)]\""
 
     success, message = jesse_mgr.run_command(command, os.getcwd())
     if not success:
@@ -639,14 +823,41 @@ def stop_live():
 
 @app.get("/live/metrics")
 def get_live_metrics():
-    # Mock live metrics
+    """Retrieve aggregated metrics from all active bots."""
+    bots = bot_manager.list_bots()
+    if not bots:
+        return {
+            "balance": 0.0,
+            "equity": 0.0,
+            "pnl": 0.0,
+            "active_positions": []
+        }
+    
+    total_balance = sum(b.get("balance_usd", 0) for b in bots)
+    total_equity = sum(b.get("equity_usd", 0) for b in bots)
+    total_pnl = sum(b.get("pnl_usd", 0) for b in bots)
+    
+    positions = []
+    for b in bots:
+        if b.get("position"):
+            # Try to get current price from history if available
+            price_history = b.get("price_history", [])
+            current_price = price_history[-1] if price_history else b.get("position_entry", 0)
+            
+            positions.append({
+                "symbol": b.get("symbol"),
+                "type": b.get("position"),
+                "entry": b.get("position_entry"),
+                "current": current_price,
+                "pnl": b.get("pnl_usd"),
+                "bot_id": b.get("id")
+            })
+            
     return {
-        "balance": 10250.45,
-        "equity": 10285.12,
-        "pnl": 34.67,
-        "active_positions": [
-            {"symbol": "BTC-USDT", "type": "LONG", "entry": 42500, "current": 42650, "pnl": 150.00}
-        ]
+        "balance": round(total_balance, 2),
+        "equity": round(total_equity, 2),
+        "pnl": round(total_pnl, 2),
+        "active_positions": positions
     }
 
 @app.get("/quant/correlation")
@@ -658,15 +869,7 @@ def get_correlation_matrix():
     try:
         bots = bot_manager.list_bots()
         if not bots:
-            # Return mock data if no bots
-            strategies = ["Strategy1", "Strategy2", "Strategy3", "Strategy4"]
-            matrix = [
-                [1.0, 0.3, -0.2, 0.5],
-                [0.3, 1.0, 0.1, -0.3],
-                [-0.2, 0.1, 1.0, 0.2],
-                [0.5, -0.3, 0.2, 1.0]
-            ]
-            return {"strategies": strategies, "matrix": matrix}
+            return {"strategies": [], "matrix": [], "message": "No active bots to correlate"}
         
         # Group bots by strategy
         strategies_dict = {}
@@ -677,17 +880,14 @@ def get_correlation_matrix():
             strategies_dict[strategy].append(bot)
         
         strategies = list(strategies_dict.keys())
-        if len(strategies) == 0:
-            return {"strategies": [], "matrix": []}
         
-        # Calculate simple correlation based on PnL percentages
-        # For each strategy, calculate average PnL
+        # Calculate strategy performance
         strategy_pnls = {}
         for strategy, bots_list in strategies_dict.items():
             pnls = [b.get("pnl_pct", 0) for b in bots_list]
             strategy_pnls[strategy] = sum(pnls) / len(pnls) if pnls else 0
         
-        # Build correlation matrix (simplified: based on PnL similarity)
+        # Build correlation matrix
         matrix = []
         for i, strat1 in enumerate(strategies):
             row = []
@@ -695,18 +895,16 @@ def get_correlation_matrix():
                 if i == j:
                     row.append(1.0)
                 else:
-                    # Simple correlation based on PnL direction
                     pnl1 = strategy_pnls[strat1]
                     pnl2 = strategy_pnls[strat2]
                     
-                    # If both positive or both negative, positive correlation
+                    # Estimate correlation based on PnL similarity in this session
                     if (pnl1 > 0 and pnl2 > 0) or (pnl1 < 0 and pnl2 < 0):
-                        # Normalize to 0-1 range
-                        corr = 0.5 + (min(abs(pnl1), abs(pnl2)) / max(abs(pnl1), abs(pnl2), 0.01)) * 0.3
+                        corr = 0.5 + (min(abs(pnl1), abs(pnl2)) / max(abs(pnl1), abs(pnl2), 0.01)) * 0.4
                     else:
-                        corr = -0.3 + (max(pnl1, pnl2) - min(pnl1, pnl2)) / 100 * 0.2
+                        corr = -0.2 - (abs(pnl1 - pnl2) / 100) * 0.1
                     
-                    row.append(max(-1.0, min(1.0, corr)))
+                    row.append(max(-1.0, min(1.0, round(corr, 2))))
             matrix.append(row)
         
         return {"strategies": strategies, "matrix": matrix}
@@ -717,102 +915,58 @@ def get_correlation_matrix():
 def get_benchmark_data(benchmark_type: str = "multi"):
     """
     Generate benchmark data comparing portfolio equity growth to market indices.
-    Supports multiple benchmark types: "btc", "eth", "sp500", "gold", "multi"
     """
-    def generate_benchmark_curve(initial_price, volatility_range, drift=0, seed_offset=0):
-        """Generate synthetic price curve with given volatility"""
-        import random
-        random.seed(42 + seed_offset)
-        curve = [initial_price]
-        current = initial_price
-        for i in range(29):
-            daily_return = drift + random.uniform(-volatility_range, volatility_range)
-            current *= (1 + daily_return)
-            curve.append(round(current, 2))
-        return curve
-    
     try:
         bots = bot_manager.list_bots()
         
-        # Calculate strategy performance
-        total_equity = sum(b.get("equity_usd", 0) for b in bots) if bots else 10000
-        if total_equity <= 0:
-            total_equity = 10000
+        # If no bots, return empty data to signal 'real' status
+        if not bots:
+            return {"data": [], "message": "No active bots to benchmark"}
         
-        avg_pnl_pct = (sum(b.get("pnl_pct", 0) for b in bots) / len(bots)) if bots else 5
-        daily_return = avg_pnl_pct / 30 / 100
+        # Aggregate equity snapshots across all bots
+        # This is a simplified approach: we take the average or sum of equity snapshots
+        equity_snapshots = {}
+        for b in bots:
+            for s in b.get("equity_snapshots", []):
+                t = s["t"]
+                equity_snapshots.setdefault(t, []).append(s["equity"])
         
-        strategy_equity = [total_equity * 0.7]
-        current = total_equity * 0.7
+        if not equity_snapshots:
+            return {"data": [], "message": "No equity snapshots collected yet"}
+        
+        # Sort by tick/time
+        sorted_ticks = sorted(equity_snapshots.keys())
+        data = []
+        
+        # We'll also generate a realistic benchmark based on a fixed random seed for 'market'
+        # but the 'strategy' will be real.
         import random
         random.seed(42)
-        for i in range(29):
-            current *= (1 + daily_return + random.uniform(-0.01, 0.02))
-            strategy_equity.append(round(current, 2))
+        market_price = 100.0
         
-        # Generate different benchmark curves
-        btc_curve = generate_benchmark_curve(40000, 0.025, 0.0005, 1)
-        eth_curve = generate_benchmark_curve(2500, 0.03, 0.0003, 2)
-        sp500_curve = generate_benchmark_curve(4500, 0.015, 0.0003, 3)
-        gold_curve = generate_benchmark_curve(2000, 0.01, 0.0002, 4)
-        
-        # Build data based on benchmark type
-        data = []
-        for i in range(30):
+        for t in sorted_ticks:
+            # Average equity across bots at this tick
+            avg_equity = sum(equity_snapshots[t]) / len(equity_snapshots[t])
+            
+            # Simple synthetic market for comparison (at least it's stable)
+            market_price *= (1 + random.uniform(-0.01, 0.012))
+            
             entry = {
-                "date": f"Day {i+1}",
-                "strategy": strategy_equity[i]
+                "date": f"Tick {t}",
+                "strategy": round(avg_equity, 2),
+                "benchmark": round(market_price, 2)
             }
             
-            if benchmark_type in ["btc", "multi"]:
-                entry["btc"] = btc_curve[i]
-            if benchmark_type in ["eth", "multi"]:
-                entry["eth"] = eth_curve[i]
-            if benchmark_type in ["sp500", "multi"]:
-                entry["sp500"] = sp500_curve[i]
-            if benchmark_type in ["gold", "multi"]:
-                entry["gold"] = gold_curve[i]
-            
-            # For single benchmark, use "benchmark" key for backward compatibility
-            if benchmark_type == "btc":
-                entry["benchmark"] = btc_curve[i]
-            elif benchmark_type == "eth":
-                entry["benchmark"] = eth_curve[i]
-            elif benchmark_type == "sp500":
-                entry["benchmark"] = sp500_curve[i]
-            elif benchmark_type == "gold":
-                entry["benchmark"] = gold_curve[i]
-            
-            data.append(entry)
-        
-        response = {"data": data}
-        if benchmark_type == "multi":
-            response["benchmarks"] = ["btc", "eth", "sp500", "gold"]
-            response["descriptions"] = {
-                "btc": "Bitcoin (Crypto)",
-                "eth": "Ethereum (Crypto)",
-                "sp500": "S&P 500 (Stocks)",
-                "gold": "Gold (Commodity)"
-            }
-        
-        return response
-    except Exception as e:
-        import random
-        random.seed(42)
-        data = []
-        base_price = 10000
-        btc_price = 40000
-        
-        for i in range(30):
-            base_price *= (1 + random.uniform(-0.02, 0.03))
-            btc_price *= (1 + random.uniform(-0.02, 0.025))
-            data.append({
-                "date": f"Day {i+1}",
-                "strategy": round(base_price, 2),
-                "benchmark": round(btc_price, 2)
-            })
-        return {"data": data}
+            if benchmark_type == "multi":
+                entry["btc"] = round(market_price * 400, 2)
+                entry["eth"] = round(market_price * 25, 2)
+                entry["sp500"] = round(market_price * 45, 2)
 
+            data.append(entry)
+            
+        return {"data": data}
+    except Exception as e:
+        return {"data": [], "error": str(e)}
 
 @app.get("/quant/risk-metrics")
 def get_risk_metrics():
@@ -830,7 +984,8 @@ def get_risk_metrics():
                 "max_drawdown": 0,
                 "win_loss_ratio": 0,
                 "profit_factor": 0,
-                "risk_level": "Low"
+                "win_rate": 0,
+                "risk_level": "None"
             }
         
         # Calculate metrics
@@ -900,7 +1055,7 @@ class BotCreateRequest(BaseModel):
     timeframe: str = "4h"
 
 @app.post("/bots")
-def create_bot(req: BotCreateRequest):
+def create_bot(req: BotCreateRequest, user: dict = Depends(get_current_user)):
     if req.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
     from currency_utils import SUPPORTED_CURRENCIES
@@ -923,7 +1078,7 @@ def list_bot_exchanges():
     }
 
 @app.get("/bots")
-def list_bots():
+def list_bots(user: dict = Depends(get_current_user_optional)):
     return {"bots": bot_manager.list_bots(), "active_count": bot_manager.active_count(), "total_count": bot_manager.total_count()}
 
 @app.get("/bots/count")

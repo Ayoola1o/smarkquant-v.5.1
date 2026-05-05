@@ -50,8 +50,9 @@ def import_alpaca_stock(symbol: str, start_date: str, timeframe: str = "1Day", e
         from alpaca.data.historical import StockHistoricalDataClient
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-    except ImportError:
-        print("[ERROR] alpaca-py is not installed. Run: pip install alpaca-py")
+        from alpaca.data.enums import DataFeed
+    except ImportError as e:
+        print(f"[ERROR] failed to import from alpaca-py: {e}")
         return
 
     TF_MAP = {
@@ -81,6 +82,7 @@ def import_alpaca_stock(symbol: str, start_date: str, timeframe: str = "1Day", e
             timeframe=tf,
             start=start_dt,
             end=end_dt,
+            feed=DataFeed.IEX
         )
         bars = client.get_stock_bars(req)
     except Exception as e:
@@ -125,8 +127,9 @@ def import_alpaca_crypto(symbol: str, start_date: str, timeframe: str = "1Day", 
         from alpaca.data.historical import CryptoHistoricalDataClient
         from alpaca.data.requests import CryptoBarsRequest
         from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-    except ImportError:
-        print("[ERROR] alpaca-py is not installed.")
+        from alpaca.data.enums import CryptoFeed
+    except ImportError as e:
+        print(f"[ERROR] failed to import from alpaca-py: {e}")
         return
 
     TF_MAP = {
@@ -145,6 +148,9 @@ def import_alpaca_crypto(symbol: str, start_date: str, timeframe: str = "1Day", 
 
     # Crypto client works without keys on paper endpoint
     client = CryptoHistoricalDataClient(api_key, secret_key)
+    # Ensure start_date is string
+    if isinstance(start_date, datetime):
+        start_date = start_date.strftime("%Y-%m-%d")
 
     start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_dt = datetime.now(timezone.utc)
@@ -159,6 +165,7 @@ def import_alpaca_crypto(symbol: str, start_date: str, timeframe: str = "1Day", 
             timeframe=tf,
             start=start_dt,
             end=end_dt,
+            feed=CryptoFeed.US
         )
         bars = client.get_crypto_bars(req)
     except Exception as e:

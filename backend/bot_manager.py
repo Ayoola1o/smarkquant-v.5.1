@@ -51,6 +51,16 @@ class TradingBot:
         self._completed_trades: List[dict] = []
         self._snapshot_interval = 5   # record equity every N ticks
 
+        # Enhanced Metrics
+        self.peak_equity = self.amount_usd
+        self.max_drawdown = 0.0
+        self.gross_profit = 0.0
+        self.gross_loss = 0.0
+        self.latency_ms = 0
+        self.slippage_pct = 0.0
+        self.execution_speed = "N/A"
+        self.api_status = "Connected"
+
     def _seed_price(self, symbol: str) -> float:
         seeds = {
             "BTC": 65000, "ETH": 3500, "BNB": 600, "SOL": 180,
@@ -128,12 +138,17 @@ class TradingBot:
                 return float(bar.close) if bar else None
             else:
                 from alpaca.data.requests import StockLatestQuoteRequest
-                quotes = sc.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=[sym]))
+                from alpaca.data.enums import DataFeed
+                # Default to IEX for paper accounts to avoid 401 errors on SIP feed
+                feed = DataFeed.IEX if self._alpaca_paper else None
+                quotes = sc.get_stock_latest_quote(StockLatestQuoteRequest(symbol_or_symbols=[sym], feed=feed))
                 q = quotes.get(sym)
                 if q and q.ask_price and q.bid_price:
                     return float((q.ask_price + q.bid_price) / 2)
         except Exception as e:
-            self._log(f"[ALPACA] Price fetch error: {e}")
+            self._log(f"[ALPACA] Price fetch error for {sym}: {e}")
+            if "401" in str(e):
+                self._log("[ALPACA] Tip: Ensure you have accepted data terms in Alpaca dashboard and system clock is sync'd.")
         return None
 
     def _alpaca_place_order(self, tc, side: str, qty: float):
@@ -147,6 +162,7 @@ class TradingBot:
             return None
 
         try:
+            start_submit = time.time()
             req = MarketOrderRequest(
                 symbol=self._alpaca_symbol(),
                 qty=qty,
@@ -163,6 +179,12 @@ class TradingBot:
             self._log(f"[ALPACA] Submitted {side} order qty={qty} status={status} id={getattr(order, 'id', 'n/a')}")
 
             if status == "filled":
+                self.latency_ms = int((time.time() - start_submit) * 1000)
+                self.execution_speed = f"{self.latency_ms}ms"
+                
+                # Simple slippage estimate (diff between requested and filled if price info available)
+                # In market orders, it's hard to define 'intended' price without a quote, 
+                # but we can log the filled_avg_price.
                 return order
 
             # Wait for fill for up to 30 seconds
@@ -349,6 +371,10 @@ class TradingBot:
                     self.trades_count += 1
                     if pnl > 0:
                         self.wins += 1
+                        self.gross_profit += pnl
+                    else:
+                        self.gross_loss += abs(pnl)
+
                     reason = "STOP" if hit_stop else "TP"
                     self._log(
                         f"EXIT-{reason} LONG {self.symbol} @ ${exit_price:,.4f} | "
@@ -386,6 +412,10 @@ class TradingBot:
                     self.trades_count += 1
                     if pnl > 0:
                         self.wins += 1
+                        self.gross_profit += pnl
+                    else:
+                        self.gross_loss += abs(pnl)
+
                     reason = "STOP" if hit_stop else "TP"
                     self._log(
                         f"EXIT-{reason} SHORT {self.symbol} @ ${exit_price:,.4f} | "
@@ -416,6 +446,14 @@ class TradingBot:
                 self.equity_usd = self.balance_usd
 
             self.pnl_usd = self.equity_usd - self.amount_usd
+
+            # Update Peak and Drawdown
+            if self.equity_usd > self.peak_equity:
+                self.peak_equity = self.equity_usd
+            
+            dd = (self.peak_equity - self.equity_usd) / self.peak_equity if self.peak_equity > 0 else 0
+            if dd > self.max_drawdown:
+                self.max_drawdown = dd
 
             # record equity snapshot every N ticks
             _tick_count = len(self._price_history)
@@ -524,7 +562,39 @@ class TradingBot:
             "logs": self.logs[-30:],
             "equity_snapshots": self._equity_snapshots[-100:],
             "completed_trades": self._completed_trades[-50:],
+            
+            # Additional Metrics
+            "peak_equity": round(self.peak_equity, 2),
+            "max_drawdown": round(self.max_drawdown * 100, 2),
+            "gross_profit": round(self.gross_profit, 2),
+            "gross_loss": round(self.gross_loss, 2),
+            "profit_factor": round(self.gross_profit / self.gross_loss, 2) if self.gross_loss > 0 else (round(self.gross_profit, 2) if self.gross_profit > 0 else 1.0),
+            "roi_pct": round((self.pnl_usd / self.amount_usd) * 100, 2) if self.amount_usd > 0 else 0.0,
+            "exposure_usd": round(self.position_size * self._price_history[-1], 2) if self.position and self._price_history else 0.0,
+            "avg_trade_pnl": round(self.pnl_usd / self.trades_count, 2) if self.trades_count > 0 else 0.0,
+            "latency_ms": self.latency_ms,
+            "execution_speed": self.execution_speed,
+            "api_status": self.api_status if self._is_alpaca else "Simulated",
+            "sharpe_ratio": self._get_sharpe(),
+            "sortino_ratio": self._get_sortino(),
         }
+
+    def _get_sharpe(self) -> float:
+        if len(self._equity_snapshots) < 10: return 0.0
+        import numpy as np
+        rets = np.diff([s['equity'] for s in self._equity_snapshots]) / [s['equity'] for s in self._equity_snapshots[:-1]]
+        if len(rets) < 2: return 0.0
+        std = np.std(rets)
+        return round(float((np.mean(rets) / std) * np.sqrt(252 * 24)) if std > 0 else 0.0, 2)
+
+    def _get_sortino(self) -> float:
+        if len(self._equity_snapshots) < 10: return 0.0
+        import numpy as np
+        rets = np.diff([s['equity'] for s in self._equity_snapshots]) / [s['equity'] for s in self._equity_snapshots[:-1]]
+        downside = rets[rets < 0]
+        if len(downside) < 2: return 0.0
+        std_down = np.std(downside)
+        return round(float((np.mean(rets) / std_down) * np.sqrt(252 * 24)) if std_down > 0 else 0.0, 2)
 
 
 class BotManager:

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { supabase } from "../../../lib/supabase";
 import {
   TrendingUp, TrendingDown, DollarSign, BarChart2, Activity,
   Shield, Briefcase, ArrowUpRight, ArrowDownRight,
@@ -159,9 +160,11 @@ export default function PortfolioPage() {
   const [txError, setTxError] = useState("");
   const [otpCopied, setOtpCopied] = useState(false);
 
-  const fetchTransactions = () => {
+  const fetchTransactions = async () => {
     setTxLoading(true);
-    fetch("/api/transactions").then(r => r.json()).then(d => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+    fetch("/api/transactions", { headers }).then(r => r.json()).then(d => {
       const txList = d.transactions || [];
       const txSum = d.summary || null;
       setTransactions(txList);
@@ -196,11 +199,15 @@ export default function PortfolioPage() {
 
   // ── fetch real data ──────────────────────────────────────────────────────
   useEffect(() => {
-    Promise.all([
-      fetch("/api/history").then(r => r.json()).catch(() => ({ sessions: [] })),
-      fetch("/api/alpaca/account?paper=true").then(r => r.json()).catch(() => null),
-      fetch("/api/transactions").then(r => r.json()).catch(() => ({ transactions: [], summary: null })),
-    ]).then(([hist, acc, txData]) => {
+    const fetchData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+
+      Promise.all([
+        fetch("/api/history", { headers }).then(r => r.json()).catch(() => ({ sessions: [] })),
+        fetch("/api/alpaca/account?paper=true", { headers }).then(r => r.json()).catch(() => null),
+        fetch("/api/transactions", { headers }).then(r => r.json()).catch(() => ({ transactions: [], summary: null })),
+      ]).then(([hist, acc, txData]) => {
       const s: Session[] = hist.sessions || [];
       setSessions(s);
 
@@ -256,7 +263,12 @@ export default function PortfolioPage() {
       setHedgeBalanceCheck({ computedEquity, sessionPnL, discrepancy, aligned });
 
       setLoading(false);
+    }).catch(err => {
+      console.error("Failed to fetch portfolio data:", err);
+      setLoading(false);
     });
+    };
+    fetchData();
   }, []);
 
   // ── refresh wallet tab + recalc balance when transactions change ──────────
@@ -264,8 +276,10 @@ export default function PortfolioPage() {
 
   // ── poll bot status every 5s ─────────────────────────────────────────────
   useEffect(() => {
-    const poll = () =>
-      fetch("/api/bots")
+    const poll = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+      fetch("/api/bots", { headers })
         .then(r => r.json())
         .then(d => {
           setActiveBots(d.active_count ?? 0);

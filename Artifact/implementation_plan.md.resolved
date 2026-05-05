@@ -1,0 +1,28 @@
+# Optimize Portfolio (Hedge Fund) Page
+
+The [PortfolioPage](file:///c:/Users/PC/Desktop/quant/smarkquant-v.5.1/frontend/src/app/portfolio/page.tsx#140-1298) contains a background interval that updates numbers (`equity`, `dayPnl`, and `lastUpdate`) continuously when active bots are running (every 1.8 seconds). This triggers a full re-render of the component.
+During each re-render, the page recalculates expensive metrics by iterating and sorting arrays (`sessions`, `transactions`, etc.), which can lead to UI lag, battery drain, and poor performance, especially when there are many sessions.
+
+## Proposed Changes
+
+We will use React's `useMemo` to cache all computationally expensive derived variables. Thus, they will only be re-evaluated when the actual raw data (e.g., `sessions`, `transactions`) changes, rather than on every ticker heartbeat.
+
+### c:\Users\PC\Desktop\quant\smarkquant-v.5.1\frontend\src\app\portfolio\page.tsx
+
+Implementation of `useMemo` to optimize expensive calculations:
+
+- **Derived Metrics**: Wrap `backtests`, `liveSessions`, totals (PnL, trades, fees, wins, etc.), ratios, and `avgExpectancy` inside a `useMemo`.
+- **Strategy Breakdown**: Wrap `stratMap` population and sorting into a `useMemo`.
+- **Equity Curves & Downsampling**: Wrap the `sampledCurve` downsampling process.
+- **Combined Fund-flow Curve (`cumCurve`)**: Wrap the sorting and merging of `completedTxEvents` and `sessionEvents` into a `cumCurve`.
+- **Drawdown and Allocations**: Wrap `ddChart`, `allocData`, and `recentSessions` in `useMemo`.
+
+These changes will memoize computations natively, substantially reducing the amount of JavaScript execution every 1.8s.
+
+## Verification Plan
+
+### Manual Verification
+1. I will propose changes to [src/app/portfolio/page.tsx](file:///c:/Users/PC/Desktop/quant/smarkquant-v.5.1/frontend/src/app/portfolio/page.tsx) directly.
+2. We verify that there are no syntax errors / TS errors.
+3. The user can start the development server (`npm run dev`) and visit the Hedge Fund/Portfolio URL to ensure the components render correctly and interactively.
+4. While checking, the user should find that the live ticker updating still works gracefully but interactions and performance remain very smooth because array reducers and sorters are bypassed entirely during ticker updates.

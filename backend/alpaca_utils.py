@@ -32,11 +32,11 @@ def get_user_alpaca_credentials(user_id: str):
         
         response = supabase.from_("user_profiles").select(
             "alpaca_api_key, alpaca_secret_key"
-        ).eq("id", user_id).single().execute()
+        ).eq("id", user_id).limit(1).execute()
         
-        if response.data:
-            api_key = response.data.get("alpaca_api_key")
-            secret_key = response.data.get("alpaca_secret_key")
+        if response.data and len(response.data) > 0:
+            api_key = response.data[0].get("alpaca_api_key")
+            secret_key = response.data[0].get("alpaca_secret_key")
             
             if api_key and secret_key:
                 return api_key.strip(), secret_key.strip()

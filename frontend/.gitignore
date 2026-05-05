@@ -63,3 +63,8 @@ next-env.d.ts
 # Misc
 tmp/
 temp/
+
+cred.md 
+.agents
+mcp/
+gemini/

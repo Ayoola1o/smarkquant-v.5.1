@@ -42,22 +42,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Fetch user profile from Supabase
   const fetchUserProfile = async (userId: string) => {
     try {
+      // Use .limit(1) instead of .single() or .maybeSingle() to avoid 406 errors
       const { data, error } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .limit(1);
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
-        console.error('Error fetching user profile:', error);
+      if (error) {
+        console.error('Error fetching user profile:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
         return;
       }
 
-      if (data) {
-        setUserProfile(data);
+      const profile = data && data.length > 0 ? data[0] : null;
+
+      if (profile) {
+        setUserProfile(profile);
+      } else {
+        // Profile doesn't exist, try to create it automatically
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.id === userId) {
+          const newProfile: UserProfile = {
+            id: user.id,
+            email: user.email || '',
+            display_name: user.user_metadata?.display_name || user.email?.split('@')[0],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            preferences: {
+              theme: 'dark',
+              notifications: true,
+            },
+          };
+
+          const { error: insertError } = await supabase
+            .from('user_profiles')
+            .insert(newProfile);
+
+          if (insertError) {
+            console.error('Error creating missing user profile:', insertError);
+          } else {
+            setUserProfile(newProfile);
+          }
+        }
       }
     } catch (err) {
-      console.error('Error fetching user profile:', err);
+      console.error('Unexpected error fetching user profile:', err);
     }
   };
 

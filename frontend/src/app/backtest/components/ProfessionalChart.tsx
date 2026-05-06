@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
-import { createChart, ColorType, CandlestickData, LineData } from "lightweight-charts";
+import { createChart, ColorType, CandlestickData, LineData, CandlestickSeries, LineSeries } from "lightweight-charts";
 import { TrendingUp, Maximize2 } from "lucide-react";
 
 interface ProfessionalChartProps {
@@ -39,7 +39,7 @@ export default function ProfessionalChart({ results }: ProfessionalChartProps) {
 
             chartRef.current = chart;
 
-            const candlestickSeries = chart.addCandlestickSeries({
+            const candlestickSeries = chart.addSeries(CandlestickSeries, {
                 upColor: "#22c55e",
                 downColor: "#ef4444",
                 borderVisible: false,
@@ -47,7 +47,7 @@ export default function ProfessionalChart({ results }: ProfessionalChartProps) {
                 wickDownColor: "#ef4444",
             });
 
-            const equitySeries = chart.addLineSeries({
+            const equitySeries = chart.addSeries(LineSeries, {
                 color: "#3b82f6",
                 lineWidth: 2,
                 priceScaleId: "equity",

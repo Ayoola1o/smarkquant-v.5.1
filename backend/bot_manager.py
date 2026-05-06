@@ -151,16 +151,11 @@ class TradingBot:
                 self._log("[ALPACA] Tip: Ensure you have accepted data terms in Alpaca dashboard and system clock is sync'd.")
         return None
 
-    def _alpaca_place_order(self, tc, side: str, qty: float):
-        """Place a market order on Alpaca and return filled order or None."""
+    def _submit_order_and_wait(self, tc, side: str, qty: float):
+        """Helper to submit a single order and wait for fill."""
         from alpaca.trading.requests import MarketOrderRequest
         from alpaca.trading.enums import OrderSide, TimeInForce
-
-        qty = round(qty, 6)
-        if qty <= 0:
-            self._log(f"[ALPACA] Refusing to place {side} order with qty={qty}")
-            return None
-
+        
         try:
             start_submit = time.time()
             req = MarketOrderRequest(
@@ -181,10 +176,6 @@ class TradingBot:
             if status == "filled":
                 self.latency_ms = int((time.time() - start_submit) * 1000)
                 self.execution_speed = f"{self.latency_ms}ms"
-                
-                # Simple slippage estimate (diff between requested and filled if price info available)
-                # In market orders, it's hard to define 'intended' price without a quote, 
-                # but we can log the filled_avg_price.
                 return order
 
             # Wait for fill for up to 30 seconds
@@ -208,8 +199,60 @@ class TradingBot:
             self._log(f"[ALPACA] Order timed out waiting for fill id={order.id} status={status}")
             return None
         except Exception as e:
-            self._log(f"[ALPACA] Order error ({side} {qty}): {e}")
+            self._log(f"[ALPACA] Submission error ({side} {qty}): {e}")
             return None
+
+    def _alpaca_place_order(self, tc, side: str, qty: float, price: float):
+        """Place a market order on Alpaca, splitting if notional exceeds $200k."""
+        qty = round(qty, 6)
+        if qty <= 0:
+            self._log(f"[ALPACA] Refusing to place {side} order with qty={qty}")
+            return None
+
+        MAX_NOTIONAL = 190000  # Safety margin below Alpaca's $200k limit
+        notional = qty * price
+
+        if notional <= MAX_NOTIONAL:
+            return self._submit_order_and_wait(tc, side, qty)
+
+        # Split into chunks
+        num_chunks = int(notional // MAX_NOTIONAL) + 1
+        chunk_qty = round(qty / num_chunks, 6)
+        
+        self._log(f"[ALPACA] Order notional ${notional:,.2f} exceeds limit. Splitting into {num_chunks} chunks.")
+        
+        total_filled = 0.0
+        last_order = None
+        
+        for i in range(num_chunks):
+            # Calculate this chunk's qty (last one gets the remainder)
+            if i == num_chunks - 1:
+                current_chunk_qty = round(qty - (chunk_qty * i), 6)
+            else:
+                current_chunk_qty = chunk_qty
+
+            if current_chunk_qty <= 0: continue
+
+            self._log(f"[ALPACA] Placing chunk {i+1}/{num_chunks}: {side} {current_chunk_qty}")
+            order = self._submit_order_and_wait(tc, side, current_chunk_qty)
+            
+            if order and getattr(order, "status", "").lower() == "filled":
+                total_filled += float(order.filled_qty)
+                last_order = order
+            else:
+                self._log(f"[ALPACA] Chunk {i+1} failed or not filled. Stopping.")
+                break
+            
+            # Short pause between chunks
+            if i < num_chunks - 1:
+                time.sleep(1)
+
+        if last_order:
+            # Mutate filled_qty to reflect the sum of all chunks for the caller
+            last_order.filled_qty = str(round(total_filled, 6))
+            return last_order
+        
+        return None
 
     def _alpaca_close_position(self, tc):
         """Close the current position on Alpaca."""
@@ -301,7 +344,7 @@ class TradingBot:
                     if qty > 0:
                         order_id_str = ""
                         if self._is_alpaca:
-                            order = self._alpaca_place_order(_tc, "BUY", qty)
+                            order = self._alpaca_place_order(_tc, "BUY", qty, price)
                             if order and getattr(order, "filled_qty", 0):
                                 filled_qty = float(order.filled_qty)
                                 order_id_str = f" | OrderID={str(order.id)[:8]}"
@@ -330,7 +373,7 @@ class TradingBot:
                     if qty > 0:
                         order_id_str = ""
                         if self._is_alpaca:
-                            order = self._alpaca_place_order(_tc, "SELL", qty)
+                            order = self._alpaca_place_order(_tc, "SELL", qty, price)
                             if order and getattr(order, "filled_qty", 0):
                                 filled_qty = float(order.filled_qty)
                                 order_id_str = f" | OrderID={str(order.id)[:8]}"

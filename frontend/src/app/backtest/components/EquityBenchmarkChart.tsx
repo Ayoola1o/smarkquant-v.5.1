@@ -37,16 +37,18 @@ export default function EquityBenchmarkChart({ results }: EquityBenchmarkChartPr
     benchmark: results.charts.benchmark?.[i]?.value ?? null,
   }));
 
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: any) => {
+    if (value === undefined || value === null) return '$0';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(value);
+    }).format(Number(value));
   };
 
-  const formatDate = (timestamp: number) => {
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '';
     return new Date(timestamp * 1000).toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
@@ -135,8 +137,8 @@ export default function EquityBenchmarkChart({ results }: EquityBenchmarkChartPr
                 color: '#f1f5f9'
               }}
               itemStyle={{ padding: '2px 0' }}
-              labelFormatter={(label) => new Date(label * 1000).toLocaleDateString()}
-              formatter={(value: number) => [formatCurrency(value), ""]}
+              labelFormatter={(label) => label ? new Date(label * 1000).toLocaleDateString() : ''}
+              formatter={(value: any) => [formatCurrency(value), ""]}
             />
             <Legend 
               verticalAlign="top" 

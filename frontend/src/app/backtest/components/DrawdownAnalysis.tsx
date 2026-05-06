@@ -34,7 +34,8 @@ export default function DrawdownAnalysis({ results }: DrawdownAnalysisProps) {
     };
   });
 
-  const formatDate = (timestamp: number) => {
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '';
     return new Date(timestamp * 1000).toLocaleDateString(undefined, {
       month: 'short',
       year: '2-digit',
@@ -81,7 +82,7 @@ export default function DrawdownAnalysis({ results }: DrawdownAnalysisProps) {
               <YAxis 
                 stroke="#475569"
                 fontSize={10}
-                tickFormatter={(val) => `${val}%`}
+                tickFormatter={(val) => val !== undefined ? `${val}%` : ''}
                 axisLine={false}
                 tickLine={false}
                 domain={['auto', 0]}
@@ -93,8 +94,11 @@ export default function DrawdownAnalysis({ results }: DrawdownAnalysisProps) {
                   borderRadius: '12px',
                   fontSize: '12px'
                 }}
-                labelFormatter={(label) => new Date(label * 1000).toLocaleDateString()}
-                formatter={(value: number) => [`${Math.abs(value).toFixed(2)}%`, "Drawdown"]}
+                labelFormatter={(label) => label ? new Date(label * 1000).toLocaleDateString() : ''}
+                formatter={(value: any) => [
+                  value !== undefined ? `${Math.abs(Number(value)).toFixed(2)}%` : '0.00%', 
+                  "Drawdown"
+                ]}
               />
               
               {/* Highlight worst periods */}

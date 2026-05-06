@@ -36,7 +36,7 @@ function BacktestPageInner() {
     const [symbol, setSymbol] = useState("BTC-USD");
     const [exchange, setExchange] = useState("yfinance");
     const [assetTab, setAssetTab] = useState<"imported" | "crypto" | "stocks" | "forex" | "commodities" | "indices">("crypto");
-    const [mainTab, setMainTab] = useState<"visuals" | "stats" | "analysis" | "optimization">("visuals");
+    const [mainTab, setMainTab] = useState<"visuals" | "stats" | "analysis" | "optimization" | "logs">("visuals");
 
     const [strategies, setStrategies] = useState<string[]>([]);
     const [importedSymbols, setImportedSymbols] = useState<{ symbol: string; exchange: string; count: number }[]>([]);
@@ -235,6 +235,12 @@ function BacktestPageInner() {
                             >
                                 Optimization
                             </button>
+                            <button
+                                onClick={() => setMainTab("logs")}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${mainTab === "logs" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "text-slate-500 hover:text-slate-300"}`}
+                            >
+                                Logs
+                            </button>
                         </div>
 
                         {mainTab === "visuals" && (
@@ -300,6 +306,17 @@ function BacktestPageInner() {
                         {mainTab === "optimization" && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <OptimizationSection startDate={startDate} finishDate={finishDate} />
+                            </div>
+                        )}
+
+                        {mainTab === "logs" && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <EngineLogs
+                                    status={status}
+                                    isRefreshing={isRefreshing}
+                                    fetchResults={fetchResults}
+                                    logEndRef={logEndRef}
+                                />
                             </div>
                         )}
 

@@ -286,6 +286,7 @@ export default function PortfolioPage() {
           setTotalBots(d.total_count ?? 0);
         })
         .catch(() => { });
+    };
     poll();
     const id = setInterval(poll, 5000);
     return () => clearInterval(id);

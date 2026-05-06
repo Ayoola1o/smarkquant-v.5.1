@@ -32,6 +32,9 @@ export default function ProfessionalChart({ results }: ProfessionalChartProps) {
                     timeVisible: true,
                     secondsVisible: false,
                 },
+                leftPriceScale: {
+                    visible: true,
+                },
                 localization: {
                     priceFormatter: (price: number) => price.toFixed(2),
                 },
@@ -50,13 +53,12 @@ export default function ProfessionalChart({ results }: ProfessionalChartProps) {
             const equitySeries = chart.addSeries(LineSeries, {
                 color: "#3b82f6",
                 lineWidth: 2,
-                priceScaleId: "equity",
+                priceScaleId: "left",
             });
 
-            chart.priceScale("equity").applyOptions({
+            chart.priceScale("left").applyOptions({
                 borderColor: "#1e293b",
                 visible: true,
-                position: "left",
                 autoScale: true,
             });
 

@@ -85,6 +85,14 @@ def _query_db(start_date: str, finish_date: str, symbol: str = "", exchange: str
     query = f"SELECT * FROM candle WHERE {' AND '.join(conditions)} ORDER BY timestamp ASC"
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
+    
+    if not df.empty:
+        # Convert timestamp (ms) to datetime index
+        df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.set_index("date", inplace=True)
+        # Add a helper 'time' column for metrics if needed, or just use 'timestamp'
+        df['time'] = df['timestamp'] / 1000.0
+        
     return df
 
 
@@ -104,7 +112,7 @@ def _list_available_symbols() -> list:
 # Metrics
 # ---------------------------------------------------------------------------
 
-def compute_metrics(trades: list, equity_curve: list, initial_capital: float, fee_total: float, start_date: str = "", finish_date: str = "") -> dict:
+def compute_metrics(trades: list, equity_curve: list, initial_capital: float, fee_total: float, start_date: str = "", finish_date: str = "", price_data: pd.DataFrame = None) -> dict:
     eq = np.array(equity_curve, dtype=float)
     final_equity = eq[-1] if len(eq) else initial_capital
     net_profit_val = final_equity - initial_capital
@@ -198,6 +206,8 @@ def compute_metrics(trades: list, equity_curve: list, initial_capital: float, fe
                 worst_drawdowns.append({
                     "start": dd_start,
                     "end": i,
+                    "start_time": int(price_data['time'].iloc[dd_start]) if price_data is not None and dd_start < len(price_data) else 0,
+                    "end_time": int(price_data['time'].iloc[i]) if price_data is not None and i < len(price_data) else 0,
                     "max_dd": round(max_dd_val * 100, 2),
                     "duration": i - dd_start
                 })
@@ -253,16 +263,37 @@ def compute_metrics(trades: list, equity_curve: list, initial_capital: float, fe
             "pnl_distribution": pnl_dist,
         },
         "monthly_returns": monthly_returns,
-        # Keep legacy flat structure for some components
+        # Keep legacy flat structure for all components
         "net_profit": round(net_profit_pct, 4),
-        "total_trades": total,
-        "max_drawdown": round(max_drawdown, 4),
-        "win_rate": round(win_rate, 4),
+        "net_profit_val": round(net_profit_val, 2),
+        "annual_return": round(annual_return, 4),
         "sharpe_ratio": round(sharpe, 4),
         "sortino_ratio": round(sortino, 4),
         "calmar_ratio": round(calmar, 4),
-        "initial_capital": initial_capital,
+        "omega_ratio": round(omega, 4),
+        "expectancy": round(expectancy, 2),
+        "expectancy_pct": round(expectancy_pct, 4),
         "final_equity": round(final_equity, 2),
+        "max_drawdown": round(max_drawdown, 4),
+        "largest_win": round(largest_win, 2),
+        "largest_loss": round(largest_loss, 2),
+        "total_winning_streak": max_win_streak,
+        "total_losing_streak": max_loss_streak,
+        "current_streak": cur_streak,
+        "fee": round(fee_total, 2),
+        "total_trades": total,
+        "win_rate": round(win_rate, 4),
+        "winning_trades": len(wins),
+        "losing_trades": len(losses),
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "avg_win_loss": round(avg_win_loss, 4),
+        "gross_profit": round(gross_profit, 2),
+        "gross_loss": round(gross_loss, 2),
+        "profit_factor": round(profit_factor, 4),
+        "avg_holding_period": round(avg_holding, 2),
+        "initial_capital": initial_capital,
+        "pnl_distribution": pnl_dist
     }
 
 
@@ -366,6 +397,8 @@ def simulate(df: pd.DataFrame, long_signal: pd.Series, short_signal: pd.Series,
             "win": pnl > 0,
             "side": "long" if is_long else "short",
             "holding": len(df) - 1 - entry_idx,
+            "entry_time": int(df.index[entry_idx].timestamp()),
+            "exit_time": int(df.index[-1].timestamp()),
             "exit_reason": "end_of_data",
         })
         capital += pnl
@@ -411,7 +444,7 @@ def run_strategy_backtest(df: pd.DataFrame, strategy_name: str,
         print(f"[WARNING] Strategy '{strategy_name}' produced 0 trades on this data. "
               "Try a longer date range or different timeframe.")
 
-    metrics = compute_metrics(trades, equity_curve, initial_capital, fee_total, start_date, finish_date)
+    metrics = compute_metrics(trades, equity_curve, initial_capital, fee_total, start_date, finish_date, df)
 
     print(f"[OK] Backtest complete:")
     print(f"     Trades:       {metrics['total_trades']}")

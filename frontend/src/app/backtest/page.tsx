@@ -18,6 +18,7 @@ import EquityBenchmarkChart from "./components/EquityBenchmarkChart";
 import ProfessionalChart from "./components/ProfessionalChart"; // Keeping but will disable if needed
 import MetricsOverview from "./components/MetricsOverview";
 import DetailedStats from "./components/DetailedStats";
+import DrawdownAnalysis from "./components/DrawdownAnalysis";
 import TradeLog from "./components/TradeLog";
 import EngineLogs from "./components/EngineLogs";
 import MonteCarloSection from "@/components/backtest/analysis/MonteCarloSection";
@@ -270,6 +271,7 @@ function BacktestPageInner() {
                         {mainTab === "stats" && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <DetailedStats results={results} />
+                                <DrawdownAnalysis results={results} />
                                 <JesseAdvancedCharts results={results} />
                                 <TradeLog results={results} />
                             </div>

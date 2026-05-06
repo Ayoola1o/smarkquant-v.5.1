@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "../../../lib/supabase";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
 import {
     Radio, Play, Square, Activity, Terminal, Trash2,
     Bot, TrendingUp, TrendingDown, Box, Clock,
@@ -9,7 +9,7 @@ import {
     ChevronDown, ChevronUp, BarChart2, Zap
 } from "lucide-react";
 import {
-    LineChart, Line, ResponsiveContainer, Tooltip as RechartTooltip, XAxis, YAxis
+    LineChart, Line, AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid
 } from "recharts";
 import { toast } from "sonner";
 
@@ -135,11 +135,20 @@ export default function LivePage() {
         }
     };
 
+    const isFetchingBots = useRef(false);
+
     const fetchBots = async () => {
+        if (isFetchingBots.current) return;
+        isFetchingBots.current = true;
         try {
             const { data: { session } } = await supabase.auth.getSession();
             const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
             const res = await fetch("/api/bots", { headers });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ detail: "Unknown error" }));
+                console.error("Bot fetch failed:", err);
+                return;
+            }
             const data = await res.json();
             setBots(data.bots || []);
             setActiveCount(data.active_count || 0);
@@ -149,6 +158,8 @@ export default function LivePage() {
             }
         } catch (err) {
             console.error("Failed to fetch bots:", err);
+        } finally {
+            isFetchingBots.current = false;
         }
     };
 
@@ -169,7 +180,7 @@ export default function LivePage() {
     useEffect(() => {
         fetchStrategies();
         fetchBots();
-        const interval = setInterval(fetchBots, 3000);
+        const interval = setInterval(fetchBots, 5000);
         return () => clearInterval(interval);
     }, []);
 
@@ -1023,11 +1034,72 @@ function BotCard({ bot, isSelected, onSelect, onStop, onDelete, strategies, onSw
 
             {/* Expandable full details if requested */}
             {showDetails && (
-                <div className="p-4 border-t border-slate-800 bg-black/40 space-y-4">
-                    {/* Full history view could go here if needed, or keep it compact as per new design */}
-                    <p className="text-[10px] text-slate-500 text-center italic">Full trading history available in the History tab</p>
+                <div className="p-4 border-t border-slate-800 bg-black/30 space-y-4 animate-in fade-in duration-300">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="space-y-2">
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-1">Performance</p>
+                            <DetailRow label="Gross Profit" value={`${sym}${bot.gross_profit}`} />
+                            <DetailRow label="Gross Loss" value={`${sym}${bot.gross_loss}`} />
+                            <DetailRow label="Profit Factor" value={bot.profit_factor} />
+                            <DetailRow label="Expectancy" value={`${bot.avg_trade_pnl >= 0 ? "+" : ""}${sym}${bot.avg_trade_pnl}`} />
+                        </div>
+                        <div className="space-y-2">
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-1">Risk</p>
+                            <DetailRow label="Sharpe Ratio" value={bot.sharpe_ratio} />
+                            <DetailRow label="Sortino Ratio" value={bot.sortino_ratio} />
+                            <DetailRow label="Max Drawdown" value={`${bot.max_drawdown}%`} />
+                            <DetailRow label="Peak Equity" value={`${sym}${bot.peak_equity}`} />
+                        </div>
+                        <div className="space-y-2">
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-1">Streaks</p>
+                            <DetailRow label="Win Streak" value={bot.total_winning_streak || 0} />
+                            <DetailRow label="Loss Streak" value={bot.total_losing_streak || 0} />
+                            <DetailRow label="Current Streak" value={bot.current_streak || 0} />
+                        </div>
+                        <div className="space-y-2">
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-1">Trades</p>
+                            <DetailRow label="Total" value={bot.trades_count} />
+                            <DetailRow label="Average Holding" value="N/A" />
+                            <DetailRow label="Win Rate" value={`${(bot.win_rate * 100).toFixed(1)}%`} />
+                        </div>
+                    </div>
+                    <div className="h-40 w-full mt-4 bg-slate-950/50 rounded-xl border border-slate-800 p-2">
+                        {equitySnapshots.length > 1 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={equitySnapshots}>
+                                    <defs>
+                                        <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                    <XAxis dataKey="time" hide />
+                                    <YAxis hide domain={['auto', 'auto']} />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', fontSize: '10px' }}
+                                    />
+                                    <Area type="monotone" dataKey="equity" stroke="#3b82f6" fillOpacity={1} fill="url(#colorEquity)" isAnimationActive={false} />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-slate-600 text-[10px]">
+                                <Activity size={20} className="mb-2 opacity-20" />
+                                No equity history yet
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+function DetailRow({ label, value }: { label: string; value: any }) {
+    return (
+        <div className="flex justify-between items-center text-[10px]">
+            <span className="text-slate-500">{label}</span>
+            <span className="text-white font-bold">{value ?? "0.00"}</span>
         </div>
     );
 }

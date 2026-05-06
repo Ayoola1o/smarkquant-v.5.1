@@ -582,19 +582,45 @@ class TradingBot:
     def _get_sharpe(self) -> float:
         if len(self._equity_snapshots) < 10: return 0.0
         import numpy as np
-        rets = np.diff([s['equity'] for s in self._equity_snapshots]) / [s['equity'] for s in self._equity_snapshots[:-1]]
-        if len(rets) < 2: return 0.0
-        std = np.std(rets)
-        return round(float((np.mean(rets) / std) * np.sqrt(252 * 24)) if std > 0 else 0.0, 2)
+        try:
+            equity_values = np.array([s['equity'] for s in self._equity_snapshots])
+            if len(equity_values) < 2: return 0.0
+            
+            # Use log returns for more stability if values are high, but simple returns here
+            # Add small epsilon to avoid div by zero if equity is 0
+            divisor = equity_values[:-1]
+            divisor[divisor == 0] = 1e-9
+            rets = np.diff(equity_values) / divisor
+            
+            std = np.std(rets)
+            if std <= 0 or np.isnan(std): return 0.0
+            
+            sharpe = (np.mean(rets) / std) * np.sqrt(252 * 24)
+            return round(float(sharpe) if np.isfinite(sharpe) else 0.0, 2)
+        except Exception:
+            return 0.0
 
     def _get_sortino(self) -> float:
         if len(self._equity_snapshots) < 10: return 0.0
         import numpy as np
-        rets = np.diff([s['equity'] for s in self._equity_snapshots]) / [s['equity'] for s in self._equity_snapshots[:-1]]
-        downside = rets[rets < 0]
-        if len(downside) < 2: return 0.0
-        std_down = np.std(downside)
-        return round(float((np.mean(rets) / std_down) * np.sqrt(252 * 24)) if std_down > 0 else 0.0, 2)
+        try:
+            equity_values = np.array([s['equity'] for s in self._equity_snapshots])
+            if len(equity_values) < 2: return 0.0
+            
+            divisor = equity_values[:-1]
+            divisor[divisor == 0] = 1e-9
+            rets = np.diff(equity_values) / divisor
+            
+            downside = rets[rets < 0]
+            if len(downside) < 2: return 0.0
+            
+            std_down = np.std(downside)
+            if std_down <= 0 or np.isnan(std_down): return 0.0
+            
+            sortino = (np.mean(rets) / std_down) * np.sqrt(252 * 24)
+            return round(float(sortino) if np.isfinite(sortino) else 0.0, 2)
+        except Exception:
+            return 0.0
 
 
 class BotManager:
@@ -632,7 +658,13 @@ class BotManager:
 
     def list_bots(self) -> List[dict]:
         with self._lock:
-            return [b.to_dict() for b in self._bots.values()]
+            bot_dicts = []
+            for b in self._bots.values():
+                try:
+                    bot_dicts.append(b.to_dict())
+                except Exception as e:
+                    print(f"Error serializing bot {b.id}: {e}")
+            return bot_dicts
 
     def exchange_summary(self) -> dict:
         with self._lock:

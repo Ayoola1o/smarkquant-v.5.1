@@ -11,7 +11,10 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    print("[CRITICAL] Supabase environment variables are missing!")
     raise ValueError("Missing Supabase environment variables")
+else:
+    print(f"[INFO] Supabase backend configured for: {SUPABASE_URL}")
 
 # Create Supabase client with service role key (for server-side operations)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -25,15 +28,19 @@ def verify_supabase_token(token: str) -> dict:
     try:
         # Use Supabase's built-in JWT verification
         response = supabase.auth.get_user(token)
+        if not response or not response.user:
+            raise ValueError("User not found or token invalid")
+        
         user = response.user
         return {
             'id': str(user.id),
             'user_id': str(user.id),
             'sub': str(user.id),
             'email': user.email,
-            'role': user.role if hasattr(user, 'role') else 'authenticated',
+            'role': getattr(user, 'role', 'authenticated'),
         }
     except Exception as e:
+        print(f"[AUTH ERROR] Token verification failed: {str(e)}")
         raise ValueError(f"Invalid token: {str(e)}")
 
 # Initialize database tables if they don't exist

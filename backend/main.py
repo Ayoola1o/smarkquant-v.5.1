@@ -338,8 +338,8 @@ async def get_backtest_analysis(result_id: str):
     if not trades:
         return {"monte_carlo": None, "significance": None}
     
-    mc = MonteCarloEngine.trade_shuffling(trades, iterations=100)
-    sig = MonteCarloEngine.rule_significance(trades)
+    mc = MonteCarloEngine.shuffle_trades(trades, iterations=100)
+    sig = MonteCarloEngine.bootstrap_trades(trades)
     
     return {
         "monte_carlo": mc,
@@ -1079,7 +1079,16 @@ def list_bot_exchanges():
 
 @app.get("/bots")
 def list_bots(user: dict = Depends(get_current_user_optional)):
-    return {"bots": bot_manager.list_bots(), "active_count": bot_manager.active_count(), "total_count": bot_manager.total_count()}
+    try:
+        bots = bot_manager.list_bots()
+        active = bot_manager.active_count()
+        total = bot_manager.total_count()
+        return {"bots": bots, "active_count": active, "total_count": total}
+    except Exception as e:
+        import traceback
+        error_msg = f"Error listing bots: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/bots/count")
 def bot_count():

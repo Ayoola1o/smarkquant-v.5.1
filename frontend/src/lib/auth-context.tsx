@@ -2,9 +2,9 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from './supabase';
-import { User, Session, AuthError } from '@supabase/supabase-js';
+import { User } from '@supabase/supabase-js';
 
-interface UserProfile {
+export interface UserProfile {
   id: string;
   email: string;
   display_name?: string;
@@ -42,19 +42,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Fetch user profile from Supabase
   const fetchUserProfile = async (userId: string) => {
     try {
-      // Use .limit(1) instead of .single() or .maybeSingle() to avoid 406 errors
-      const { data, error } = await supabase
+      // Use .limit(1) instead of .single() to handle missing profiles gracefully
+      const { data, error: profileError } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('id', userId)
         .limit(1);
 
-      if (error) {
+      if (profileError) {
         console.error('Error fetching user profile:', {
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint
+          message: profileError.message,
+          code: profileError.code,
+          details: profileError.details,
+          hint: profileError.hint
         });
         return;
       }
@@ -65,12 +65,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserProfile(profile);
       } else {
         // Profile doesn't exist, try to create it automatically
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user && user.id === userId) {
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (currentUser && currentUser.id === userId) {
           const newProfile: UserProfile = {
-            id: user.id,
-            email: user.email || '',
-            display_name: user.user_metadata?.display_name || user.email?.split('@')[0],
+            id: currentUser.id,
+            email: currentUser.email || '',
+            display_name: currentUser.user_metadata?.display_name || currentUser.email?.split('@')[0],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             preferences: {
@@ -144,7 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = async (email: string, password: string, displayName?: string) => {
     setError(null);
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error: signupError } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -154,11 +154,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
-      if (error) throw error;
+      if (signupError) throw signupError;
 
       if (data.user) {
-        // Create user profile in Supabase
-        const userProfile: Partial<UserProfile> = {
+        const profile: Partial<UserProfile> = {
           id: data.user.id,
           email: data.user.email || '',
           display_name: displayName || email.split('@')[0],
@@ -172,10 +171,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const { error: profileError } = await supabase
           .from('user_profiles')
-          .insert(userProfile);
+          .insert(profile);
 
         if (profileError) {
-          console.error('Error creating user profile:', profileError);
+          console.error('Error creating user profile during signup:', profileError);
         }
       }
     } catch (err) {
@@ -188,12 +187,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     setError(null);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (error) throw error;
+      if (loginError) throw loginError;
 
       setUser(data.user);
       if (data.user) {
@@ -209,8 +208,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setError(null);
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      const { error: logoutError } = await supabase.auth.signOut();
+      if (logoutError) throw logoutError;
 
       setUser(null);
       setUserProfile(null);
@@ -224,11 +223,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (email: string) => {
     setError(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
       });
 
-      if (error) throw error;
+      if (resetError) throw resetError;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Reset password failed';
       setError(errorMessage);
@@ -246,11 +245,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('user_profiles')
-        .upsert(updatedData);
+        .upsert({
+          id: user.id,
+          ...updatedData
+        });
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
       setUserProfile((prev) => (prev ? { ...prev, ...updatedData } : null));
     } catch (err) {

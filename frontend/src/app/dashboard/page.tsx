@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { TrendingUp, TrendingDown, Activity, Box, Database, Bot, Zap, CheckCircle, Clock } from "lucide-react";
-import { useProtectedRoute } from "../../../lib/use-protected-route";
+import { useProtectedRoute } from "@/lib/use-protected-route";
 
 interface Route {
     exchange: string;

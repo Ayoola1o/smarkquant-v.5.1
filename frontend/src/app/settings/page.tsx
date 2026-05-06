@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "../../../lib/auth-context";
-import { supabase } from "../../../lib/supabase";
-import { useProtectedRoute } from "../../../lib/use-protected-route";
+import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/lib/supabase";
+import { useProtectedRoute } from "@/lib/use-protected-route";
 import { Eye, EyeOff, Save, Lock, User, Key, AlertCircle, FileText } from "lucide-react";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";

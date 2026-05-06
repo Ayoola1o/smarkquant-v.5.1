@@ -22,9 +22,9 @@ interface JesseAdvancedChartsProps {
 export default function JesseAdvancedCharts({ results }: JesseAdvancedChartsProps) {
     if (!results || !results.metrics) return null;
 
-    const { monthly_returns } = results;
-    const { worst_drawdowns } = results.metrics.risk || {};
-    const { pnl_distribution } = results.metrics.trading_stats || {};
+    const monthly_returns = results.metrics?.monthly_returns || results.monthly_returns || {};
+    const worst_drawdowns = results.metrics?.worst_drawdowns || results.metrics?.risk?.worst_drawdowns || [];
+    const pnl_distribution = results.metrics?.pnl_distribution || results.metrics?.trading_stats?.pnl_distribution || [];
 
     // Prepare Monthly Heatmap Data
     const years = Array.from(new Set(Object.keys(monthly_returns || {}).map(k => k.split('-')[0]))).sort();

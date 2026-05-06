@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { supabase } from "../../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import {
   TrendingUp, TrendingDown, DollarSign, BarChart2, Activity,
   Shield, Briefcase, ArrowUpRight, ArrowDownRight,

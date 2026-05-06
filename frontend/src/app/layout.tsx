@@ -1,6 +1,6 @@
 import "./globals.css";
 import { Toaster } from "sonner";
-import { AuthProvider } from "../../lib/auth-context";
+import { AuthProvider } from "@/lib/auth-context";
 import { SidebarProvider } from "@/lib/sidebar-context";
 import ClientLayout from "@/components/ClientLayout";
 

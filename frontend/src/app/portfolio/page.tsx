@@ -163,7 +163,7 @@ export default function PortfolioPage() {
   const fetchTransactions = async () => {
     setTxLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
-    const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+    const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
     fetch("/api/transactions", { headers }).then(r => r.json()).then(d => {
       const txList = d.transactions || [];
       const txSum = d.summary || null;
@@ -201,7 +201,7 @@ export default function PortfolioPage() {
   useEffect(() => {
     const fetchData = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+      const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
 
       Promise.all([
         fetch("/api/history", { headers }).then(r => r.json()).catch(() => ({ sessions: [] })),
@@ -278,7 +278,7 @@ export default function PortfolioPage() {
   useEffect(() => {
     const poll = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+      const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
       fetch("/api/bots", { headers })
         .then(r => r.json())
         .then(d => {

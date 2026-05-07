@@ -75,7 +75,7 @@ export default function LivePage() {
         setAlpacaError(null);
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+            const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
             const [acctRes, posRes, ordRes] = await Promise.all([
                 fetch(`/api/alpaca/account?paper=${paper}`, { headers }),
                 fetch(`/api/alpaca/positions?paper=${paper}`, { headers }),
@@ -142,7 +142,7 @@ export default function LivePage() {
         isFetchingBots.current = true;
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+            const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
             const res = await fetch("/api/bots", { headers });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: "Unknown error" }));
@@ -166,7 +166,7 @@ export default function LivePage() {
     const fetchStrategies = async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+            const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
             const res = await fetch("/api/strategies", { headers });
             const data = await res.json();
             const list: string[] = data.strategies || [];
@@ -220,7 +220,7 @@ export default function LivePage() {
     const stopBot = async (id: string) => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+            const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
             await fetch(`/api/bots/${id}/stop`, { method: "POST", headers });
             toast.info("Bot stopped");
             fetchBots();
@@ -230,7 +230,7 @@ export default function LivePage() {
     const deleteBot = async (id: string) => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+            const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
             await fetch(`/api/bots/${id}`, { method: "DELETE", headers });
             toast.success("Bot removed");
             if (selectedBot?.id === id) setSelectedBot(null);
@@ -243,7 +243,7 @@ export default function LivePage() {
         const paper = isAlpacaPaper(exchange);
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+            const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
             const res = await fetch(`/api/alpaca/cancel-all?paper=${paper}`, { method: "POST", headers });
             if (res.ok) {
                 toast.success("All orders cancelled");
@@ -259,7 +259,7 @@ export default function LivePage() {
         const paper = isAlpacaPaper(exchange);
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const headers = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
+            const headers: Record<string, string> = session ? { "Authorization": `Bearer ${session.access_token}` } : {};
             const res = await fetch(`/api/alpaca/close-all?paper=${paper}`, { method: "POST", headers });
             if (res.ok) {
                 toast.success("All positions closed");

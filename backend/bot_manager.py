@@ -341,6 +341,14 @@ class TradingBot:
                 if want_long:
                     stop = price - ATR_STOP * cur_atr
                     qty = (self.balance_usd * RISK_PCT / 100) / abs(price - stop) if abs(price - stop) > 0 else 0
+                    
+                    if self._is_alpaca:
+                        # Cap quantity by available balance (with 2% buffer for fees/slippage)
+                        max_buy_qty = (self.balance_usd * 0.98) / price
+                        if qty > max_buy_qty:
+                            self._log(f"[ALPACA] Capping BUY qty {qty:.4f} -> {max_buy_qty:.4f} due to balance limits")
+                            qty = max_buy_qty
+
                     if qty > 0:
                         order_id_str = ""
                         if self._is_alpaca:
@@ -368,8 +376,20 @@ class TradingBot:
                         )
 
                 elif want_short:
+                    if self._is_alpaca and self._is_crypto_symbol():
+                        # self._log(f"[ALPACA] Skipping SHORT signal for {self.symbol} (Crypto shorting not supported)")
+                        continue
+
                     stop = price + ATR_STOP * cur_atr
                     qty = (self.balance_usd * RISK_PCT / 100) / abs(stop - price) if abs(stop - price) > 0 else 0
+                    
+                    if self._is_alpaca:
+                        # Cap quantity by available balance if we were to support shorting, 
+                        # but for now just safety check.
+                        max_short_qty = (self.balance_usd * 0.98) / price
+                        if qty > max_short_qty:
+                            qty = max_short_qty
+
                     if qty > 0:
                         order_id_str = ""
                         if self._is_alpaca:

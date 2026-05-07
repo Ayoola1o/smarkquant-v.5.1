@@ -57,7 +57,7 @@ export default function LivePage() {
     const [strategy, setStrategy] = useState("");
     const [timeframe, setTimeframe] = useState("4h");
     const [launching, setLaunching] = useState(false);
-    const [switchingStrategy, setSwitchingStrategy] = useState(null);
+    const [switchingStrategy, setSwitchingStrategy] = useState<string | null>(null);
     const [mainTab, setMainTab] = useState("trading"); // "trading", "api", "system"
 
     // Alpaca dashboard state

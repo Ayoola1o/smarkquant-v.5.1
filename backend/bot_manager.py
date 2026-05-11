@@ -182,7 +182,7 @@ class TradingBot:
             for _ in range(30):
                 time.sleep(1)
                 try:
-                    order = tc.get_order(order.id)
+                    order = tc.get_order_by_id(order.id)
                 except Exception as e:
                     self._log(f"[ALPACA] get_order error: {e}")
                     continue
@@ -211,6 +211,10 @@ class TradingBot:
 
         MAX_NOTIONAL = 190000  # Safety margin below Alpaca's $200k limit
         notional = qty * price
+
+        if notional < 10.0:
+            self._log(f"[ALPACA] Refusing to place {side} order: notional value ${notional:.2f} is below Alpaca's $10 minimum limit")
+            return None
 
         if notional <= MAX_NOTIONAL:
             return self._submit_order_and_wait(tc, side, qty)

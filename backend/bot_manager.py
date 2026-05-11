@@ -44,6 +44,8 @@ class TradingBot:
         self._stop_event = threading.Event()
 
         self._price_history: List[float] = []
+        self._candles: List[dict] = []
+        self._current_candle: dict = None
         self._base_price = self._seed_price(symbol)
         self._stop_price = 0.0
         self._tp_price = 0.0
@@ -60,6 +62,19 @@ class TradingBot:
         self.slippage_pct = 0.0
         self.execution_speed = "N/A"
         self.api_status = "Connected"
+
+    def _get_timeframe_ms(self) -> int:
+        tf = self.timeframe
+        unit = tf[-1].lower()
+        try:
+            val = int(tf[:-1])
+            if unit == 'm': return val * 60 * 1000
+            if unit == 'h': return val * 3600 * 1000
+            if unit == 'd': return val * 86400 * 1000
+            if unit == 'w': return val * 86400 * 7 * 1000
+        except:
+            pass
+        return 3600 * 1000 # default 1h
 
     def _seed_price(self, symbol: str) -> float:
         seeds = {
@@ -308,8 +323,29 @@ class TradingBot:
                 return
             mode_label = "PAPER" if self._alpaca_paper else "LIVE"
             self._log(f"[ALPACA {mode_label}] Connected ✓ — real orders will be placed on Alpaca")
-            self._alpaca_sync_account(_tc)
             self._log(f"[ALPACA] Account equity: ${self.equity_usd:,.2f} | Cash: ${self.balance_usd:,.2f}")
+
+        # Seed historical candles from local DB
+        import sqlite3
+        from db_config import DB_PATH
+        tf_ms = self._get_timeframe_ms()
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            query = "SELECT timestamp, open, high, low, close, volume FROM candle WHERE symbol = ? AND (timeframe = ? OR timeframe IS NULL) ORDER BY timestamp DESC LIMIT 200"
+            cursor = conn.cursor()
+            cursor.execute(query, (self.symbol, self.timeframe))
+            rows = cursor.fetchall()
+            conn.close()
+            if rows:
+                rows.reverse()
+                for r in rows:
+                    c = {"time": r[0] // 1000, "open": r[1], "high": r[2], "low": r[3], "close": r[4], "volume": r[5]}
+                    self._candles.append(c)
+                    self._price_history.append(r[4])
+                self._base_price = rows[-1][4]
+                self._log(f"[DB] Seeded {len(rows)} historical candles for {self.timeframe} timeframe")
+        except Exception as e:
+            self._log(f"[DB] Could not load historical candles: {e}")
 
         tick_interval = 10 if self._is_alpaca else 3
 
@@ -320,19 +356,46 @@ class TradingBot:
                     self._log("[ALPACA] Could not fetch price — retrying in 10s")
                     time.sleep(10)
                     continue
-                self._price_history.append(price)
-                if len(self._price_history) > 300:
-                    self._price_history.pop(0)
             else:
                 price = self._simulate_price()
 
-            if len(self._price_history) < warmup:
+            # --- Candle Builder Logic ---
+            current_ms = int(time.time() * 1000)
+            candle_start = current_ms - (current_ms % tf_ms)
+            
+            if self._current_candle is None:
+                self._current_candle = {
+                    "time": candle_start // 1000,
+                    "open": price, "high": price, "low": price, "close": price, "volume": 0
+                }
+            elif candle_start // 1000 > self._current_candle["time"]:
+                # Cross timeframe boundary
+                self._candles.append(self._current_candle)
+                if len(self._candles) > 300:
+                    self._candles.pop(0)
+                self._price_history.append(self._current_candle["close"])
+                if len(self._price_history) > 300:
+                    self._price_history.pop(0)
+                
+                self._current_candle = {
+                    "time": candle_start // 1000,
+                    "open": price, "high": price, "low": price, "close": price, "volume": 0
+                }
+            else:
+                # Update current active candle
+                self._current_candle["high"] = max(self._current_candle["high"], price)
+                self._current_candle["low"] = min(self._current_candle["low"], price)
+                self._current_candle["close"] = price
+                
+            current_hist = self._price_history + [self._current_candle["close"]]
+
+            if len(current_hist) < warmup:
                 if self._is_alpaca:
-                    self._log(f"[ALPACA] Warming up… {len(self._price_history)}/{warmup} bars collected")
+                    self._log(f"[ALPACA] Warming up… {len(current_hist)}/{warmup} bars collected")
                 time.sleep(tick_interval)
                 continue
 
-            signals = get_signals_streaming(self.strategy, self._price_history)
+            signals = get_signals_streaming(self.strategy, current_hist)
             want_long = signals.get("long", False)
             want_short = signals.get("short", False)
             cur_atr = signals.get("atr", price * 0.01)
@@ -627,6 +690,7 @@ class TradingBot:
             "trades_count": self.trades_count,
             "win_rate": win_rate,
             "logs": self.logs[-30:],
+            "candles": self._candles[-100:] + ([self._current_candle] if self._current_candle else []),
             "equity_snapshots": self._equity_snapshots[-100:],
             "completed_trades": self._completed_trades[-50:],
             

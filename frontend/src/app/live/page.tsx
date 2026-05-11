@@ -6,8 +6,10 @@ import {
     Radio, Play, Square, Activity, Terminal, Trash2,
     Bot, TrendingUp, TrendingDown, Box, Clock,
     Wallet, List, RefreshCw, AlertTriangle, CheckCircle,
-    Zap
+    Zap, PlayCircle, Settings, StopCircle, CheckCircle2, 
+    ShieldAlert, KeyRound, Server, EyeOff
 } from "lucide-react";
+import LiveChart from "./components/LiveChart";
 import {
     LineChart, Line, AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid
 } from "recharts";
@@ -671,10 +673,13 @@ export default function LivePage() {
                             </div>
                         )}
 
-                        {/* Signal Stream for selected bot */}
+                        {/* Live Chart & Signal Stream for selected bot */}
                         {selectedBot && (
-                            <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
-                                <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+                            <div className="space-y-6">
+                                <LiveChart bot={selectedBot} />
+                                
+                                <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
+                                    <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                                     <div className="flex items-center gap-2">
                                         <Terminal size={15} className="text-slate-400" />
                                         <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
@@ -702,6 +707,7 @@ export default function LivePage() {
                                                                     "border-slate-800 text-slate-400"
                                             }`}>{log}</div>
                                     ))}
+                                    </div>
                                 </div>
                             </div>
                         )}

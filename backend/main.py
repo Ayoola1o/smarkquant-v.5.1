@@ -188,6 +188,7 @@ class BacktestRequest(BaseModel):
     strategy_name: str = ""
     symbol: str = ""
     exchange: str = ""
+    timeframe: str = "1Day"
     initial_capital: float = 10000.0
     risk_pct: float = 3.0
     atr_stop: float = 2.5
@@ -482,9 +483,9 @@ def import_candles(req: CandleImportRequest):
             f"{tf} alpaca {asset_type}"
         )
     elif req.exchange.lower() == "yfinance":
-        command = f"python yfinance_importer.py {req.symbol} {req.start_date}"
+        command = f"python yfinance_importer.py {req.symbol} {req.start_date} {tf}"
     else:
-        command = f"python yfinance_importer.py {req.symbol} {req.start_date} {req.exchange}"
+        command = f"python yfinance_importer.py {req.symbol} {req.start_date} {tf} {req.exchange}"
 
     success, message = jesse_mgr.run_command(command, os.getcwd())
     if not success:
@@ -704,6 +705,7 @@ async def run_backtest(req: BacktestRequest):
         req.strategy_name or "SMA Crossover",
         req.symbol or "BTC-USD",
         req.exchange or "alpaca",
+        req.timeframe or "1Day",
         str(req.initial_capital),
         str(req.risk_pct),
         str(req.atr_stop),

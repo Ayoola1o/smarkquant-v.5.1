@@ -19,11 +19,17 @@ from db_config import DB_PATH
 
 
 def _ensure_table(conn: sqlite3.Connection):
+    try:
+        conn.execute("ALTER TABLE candle ADD COLUMN timeframe TEXT")
+    except sqlite3.OperationalError:
+        pass
+        
     conn.execute("""
         CREATE TABLE IF NOT EXISTS candle (
             id TEXT PRIMARY KEY,
             symbol TEXT NOT NULL,
             exchange TEXT NOT NULL,
+            timeframe TEXT,
             timestamp INTEGER NOT NULL,
             open REAL NOT NULL,
             high REAL NOT NULL,
@@ -103,9 +109,9 @@ def import_alpaca_stock(symbol: str, start_date: str, timeframe: str = "1Day", e
     for bar in bar_list:
         ts = int(bar.timestamp.timestamp() * 1000)
         conn.execute(
-            "INSERT OR IGNORE INTO candle (id, symbol, exchange, timestamp, open, high, low, close, volume) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(uuid.uuid4()), symbol, exchange, ts,
+            "INSERT OR IGNORE INTO candle (id, symbol, exchange, timeframe, timestamp, open, high, low, close, volume) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), symbol, exchange, timeframe, ts,
              float(bar.open), float(bar.high), float(bar.low),
              float(bar.close), float(bar.volume)),
         )
@@ -187,9 +193,9 @@ def import_alpaca_crypto(symbol: str, start_date: str, timeframe: str = "1Day", 
         ts = int(bar.timestamp.timestamp() * 1000)
         # Store using original symbol format (BTC-USD) for consistency with backtest queries
         conn.execute(
-            "INSERT OR IGNORE INTO candle (id, symbol, exchange, timestamp, open, high, low, close, volume) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(uuid.uuid4()), symbol, exchange, ts,
+            "INSERT OR IGNORE INTO candle (id, symbol, exchange, timeframe, timestamp, open, high, low, close, volume) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), symbol, exchange, timeframe, ts,
              float(bar.open), float(bar.high), float(bar.low),
              float(bar.close), float(bar.volume)),
         )

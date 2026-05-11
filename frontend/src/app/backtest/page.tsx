@@ -152,6 +152,7 @@ function BacktestPageInner() {
                     strategy_name: strategy || undefined,
                     symbol: symbol || undefined,
                     exchange: exchange || undefined,
+                    timeframe: timeframe || "1Day",
                 }),
             });
             if (res.ok) {

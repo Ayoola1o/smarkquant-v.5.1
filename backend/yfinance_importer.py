@@ -6,7 +6,7 @@ import os
 import sys
 import uuid
 
-def import_yfinance(symbol, start_date, exchange="yfinance"):
+def import_yfinance(symbol, start_date, timeframe="1Day", exchange="yfinance"):
     from db_config import DB_PATH as db_path
     
     # Connect to SQLite DB
@@ -55,11 +55,17 @@ def import_yfinance(symbol, start_date, exchange="yfinance"):
 
     # Ensure table exists (simplified schema for SQLite)
     try:
+        try:
+            cur.execute("ALTER TABLE candle ADD COLUMN timeframe TEXT")
+        except sqlite3.OperationalError:
+            pass
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS candle (
                 id TEXT PRIMARY KEY,
                 symbol TEXT NOT NULL,
                 exchange TEXT NOT NULL,
+                timeframe TEXT,
                 timestamp INTEGER NOT NULL,
                 open REAL NOT NULL,
                 high REAL NOT NULL,
@@ -82,12 +88,13 @@ def import_yfinance(symbol, start_date, exchange="yfinance"):
             
             try:
                 cur.execute("""
-                    INSERT OR IGNORE INTO candle (id, symbol, exchange, timestamp, open, high, low, close, volume)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR IGNORE INTO candle (id, symbol, exchange, timeframe, timestamp, open, high, low, close, volume)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     candle_id,
                     symbol,
                     exchange,
+                    timeframe,
                     timestamp,
                     float(row['Open']),
                     float(row['High']),
@@ -112,8 +119,8 @@ def import_yfinance(symbol, start_date, exchange="yfinance"):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python yfinance_importer.py <symbol> <start_date>")
+        print("Usage: python yfinance_importer.py <symbol> <start_date> [timeframe] [exchange]")
     else:
-        # If exchange is passed as 4th arg, use it
-        exchange = sys.argv[3] if len(sys.argv) > 3 else "yfinance"
-        import_yfinance(sys.argv[1], sys.argv[2], exchange)
+        timeframe = sys.argv[3] if len(sys.argv) > 3 else "1Day"
+        exchange = sys.argv[4] if len(sys.argv) > 4 else "yfinance"
+        import_yfinance(sys.argv[1], sys.argv[2], timeframe, exchange)

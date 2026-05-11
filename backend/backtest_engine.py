@@ -17,9 +17,9 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), "storage", "json")
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_candles(start_date: str, finish_date: str, symbol: str = "", exchange: str = "", perturb_data: bool = False) -> pd.DataFrame:
+def load_candles(start_date: str, finish_date: str, symbol: str = "", exchange: str = "", timeframe: str = "1Day", perturb_data: bool = False) -> pd.DataFrame:
     # 1. Try loading from SQLite first
-    df = _query_db(start_date, finish_date, symbol, exchange)
+    df = _query_db(start_date, finish_date, symbol, exchange, timeframe)
     
     if perturb_data and not df.empty:
         print("[INFO] Applying candle perturbation (Monte Carlo Candle Based)...")
@@ -39,15 +39,15 @@ def load_candles(start_date: str, finish_date: str, symbol: str = "", exchange: 
                 crypto_bases = {"BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "AVAX", "DOT", "LINK", "LTC", "DOGE"}
                 base = symbol.split("-")[0].upper()
                 if base in crypto_bases:
-                    import_alpaca_crypto(symbol, start_date, exchange="alpaca")
+                    import_alpaca_crypto(symbol, start_date, timeframe=timeframe, exchange="alpaca")
                 else:
-                    import_alpaca_stock(symbol, start_date, exchange="alpaca")
+                    import_alpaca_stock(symbol, start_date, timeframe=timeframe, exchange="alpaca")
             elif exchange.lower() == "yfinance":
                 from yfinance_importer import import_yfinance
                 import_yfinance(symbol, start_date, exchange="yfinance")
             
             # Try reloading from DB after import
-            df = _query_db(start_date, finish_date, symbol, exchange)
+            df = _query_db(start_date, finish_date, symbol, exchange, timeframe)
         except Exception as e:
             print(f"[ERROR] On-the-fly import failed: {e}")
 
@@ -65,7 +65,7 @@ def load_candles(start_date: str, finish_date: str, symbol: str = "", exchange: 
     return df
 
 
-def _query_db(start_date: str, finish_date: str, symbol: str = "", exchange: str = "") -> pd.DataFrame:
+def _query_db(start_date: str, finish_date: str, symbol: str = "", exchange: str = "", timeframe: str = "1Day") -> pd.DataFrame:
     if not os.path.exists(DB_PATH):
         return pd.DataFrame()
 
@@ -81,6 +81,9 @@ def _query_db(start_date: str, finish_date: str, symbol: str = "", exchange: str
     if exchange and exchange.lower() not in ["db", "local", "any"]:
         conditions.append("exchange = ?")
         params.append(exchange)
+    if timeframe:
+        conditions.append("(timeframe = ? OR timeframe IS NULL)")
+        params.append(timeframe)
 
     query = f"SELECT * FROM candle WHERE {' AND '.join(conditions)} ORDER BY timestamp ASC"
     df = pd.read_sql_query(query, conn, params=params)
@@ -533,7 +536,7 @@ def save_csv_exports(results: dict, base_path: str):
 # ---------------------------------------------------------------------------
 
 def run_backtest(start_date: str, finish_date: str, strategy_name: str = "",
-                 symbol: str = "", exchange: str = "", 
+                 symbol: str = "", exchange: str = "", timeframe: str = "1Day",
                  initial_capital: float = 10000.0,
                  risk_pct: float = 3.0,
                  atr_stop: float = 2.5,
@@ -545,10 +548,10 @@ def run_backtest(start_date: str, finish_date: str, strategy_name: str = "",
     print(f"[INFO] Starting backtest: {start_date} -> {finish_date}")
     if perturb_data:
         print("[INFO] MODE: Candle Based Monte Carlo (Data Perturbation ON)")
-    print(f"[INFO] Strategy: {label} | Asset: {symbol or 'all assets'}")
+    print(f"[INFO] Strategy: {label} | Asset: {symbol or 'all assets'} | Timeframe: {timeframe}")
     print(f"[INFO] Params: cap={initial_capital}, risk={risk_pct}%, stop={atr_stop}, tp={atr_tp}, fee={fee_rate}")
 
-    df = load_candles(start_date, finish_date, symbol=symbol, exchange=exchange, perturb_data=perturb_data)
+    df = load_candles(start_date, finish_date, symbol=symbol, exchange=exchange, timeframe=timeframe, perturb_data=perturb_data)
     if df.empty:
         sys.exit(1)
 
@@ -593,7 +596,7 @@ def run_backtest(start_date: str, finish_date: str, strategy_name: str = "",
             strategy=label,
             symbol=symbol or "mixed",
             exchange=exchange or "any",
-            timeframe="",
+            timeframe=timeframe,
             start_date=start_date,
             end_date=finish_date,
             metrics=metrics,
@@ -614,11 +617,12 @@ if __name__ == "__main__":
         sys.argv[3] if len(sys.argv) > 3 else "",
         sys.argv[4] if len(sys.argv) > 4 else "",
         sys.argv[5] if len(sys.argv) > 5 else "",
-        float(sys.argv[6]) if len(sys.argv) > 6 else 10000.0,
-        float(sys.argv[7]) if len(sys.argv) > 7 else 3.0,
-        float(sys.argv[8]) if len(sys.argv) > 8 else 2.5,
-        float(sys.argv[9]) if len(sys.argv) > 9 else 3.2,
-        float(sys.argv[10]) if len(sys.argv) > 10 else 0.001,
-        sys.argv[11] if len(sys.argv) > 11 else "",
-        sys.argv[12].lower() == 'true' if len(sys.argv) > 12 else False
+        sys.argv[6] if len(sys.argv) > 6 else "1Day",
+        float(sys.argv[7]) if len(sys.argv) > 7 else 10000.0,
+        float(sys.argv[8]) if len(sys.argv) > 8 else 3.0,
+        float(sys.argv[9]) if len(sys.argv) > 9 else 2.5,
+        float(sys.argv[10]) if len(sys.argv) > 10 else 3.2,
+        float(sys.argv[11]) if len(sys.argv) > 11 else 0.001,
+        sys.argv[12] if len(sys.argv) > 12 else "",
+        sys.argv[13].lower() == 'true' if len(sys.argv) > 13 else False
     )

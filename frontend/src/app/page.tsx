@@ -80,6 +80,7 @@ export default function LandingPage() {
                             <a href="#performance" className="text-slate-300 hover:text-white transition-colors">Performance</a>
                             <a href="#automation" className="text-slate-300 hover:text-white transition-colors">How It Works</a>
                             <a href="#about" className="text-slate-300 hover:text-white transition-colors">About</a>
+                            <Link href="/login" className="text-slate-300 hover:text-white font-medium transition-colors">Log In</Link>
                             <Link href="/pricing" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Pricing</Link>
                             <Link href="/contact" className="px-4 py-2 border border-slate-700 hover:border-slate-500 text-white rounded-lg transition-colors">Contact</Link>
                         </div>
@@ -239,7 +240,7 @@ export default function LandingPage() {
                     <div>
                         <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 rounded-2xl p-8 border border-slate-700">
                             <img 
-                                src="/Founder_image.png" 
+                                src="/founder.jpg" 
                                 alt="Founder" 
                                 className="w-full h-96 object-cover rounded-xl mb-6"
                             />

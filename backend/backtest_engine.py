@@ -85,6 +85,13 @@ def _query_db(start_date: str, finish_date: str, symbol: str = "", exchange: str
         conditions.append("(timeframe = ? OR timeframe IS NULL)")
         params.append(timeframe)
 
+    # Ensure timeframe column exists in case migration hasn't run on this machine
+    try:
+        conn.execute("ALTER TABLE candle ADD COLUMN timeframe TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     query = f"SELECT * FROM candle WHERE {' AND '.join(conditions)} ORDER BY timestamp ASC"
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()

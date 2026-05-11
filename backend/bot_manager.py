@@ -331,6 +331,12 @@ class TradingBot:
         tf_ms = self._get_timeframe_ms()
         try:
             conn = sqlite3.connect(DB_PATH)
+            try:
+                conn.execute("ALTER TABLE candle ADD COLUMN timeframe TEXT")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+            
             query = "SELECT timestamp, open, high, low, close, volume FROM candle WHERE symbol = ? AND (timeframe = ? OR timeframe IS NULL) ORDER BY timestamp DESC LIMIT 200"
             cursor = conn.cursor()
             cursor.execute(query, (self.symbol, self.timeframe))

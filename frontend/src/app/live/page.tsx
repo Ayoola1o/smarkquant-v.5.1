@@ -5,8 +5,8 @@ import { supabase } from "@/lib/supabase";
 import {
     Radio, Play, Square, Activity, Terminal, Trash2,
     Bot, TrendingUp, TrendingDown, Box, Clock,
-    Wallet, List, RefreshCw, AlertTriangle, CheckCircle, ExternalLink,
-    ChevronDown, ChevronUp, BarChart2, Zap
+    Wallet, List, RefreshCw, AlertTriangle, CheckCircle,
+    Zap
 } from "lucide-react";
 import {
     LineChart, Line, AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid
@@ -924,6 +924,12 @@ function BotCard({ bot, isSelected, onSelect, onStop, onDelete, strategies, onSw
                             </span>
                         </div>
                         <div className="flex justify-between items-center text-[10px]">
+                            <span className="text-slate-400">Uptime</span>
+                            <span className="text-white font-bold">
+                                {bot.runtime < 60 ? `${Math.floor(bot.runtime)}s` : bot.runtime < 3600 ? `${Math.floor(bot.runtime/60)}m ${Math.floor(bot.runtime%60)}s` : `${Math.floor(bot.runtime/3600)}h ${Math.floor((bot.runtime%3600)/60)}m`}
+                            </span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px]">
                             <span className="text-slate-400">Status</span>
                             <span className="text-white font-bold">{bot.is_running ? "RUNNING" : "STOPPED"}</span>
                         </div>
@@ -1018,7 +1024,7 @@ function BotCard({ bot, isSelected, onSelect, onStop, onDelete, strategies, onSw
                     </span>
                     <span className="flex items-center gap-1">
                         <span className="text-slate-600 uppercase font-black tracking-tighter">API:</span>
-                        <span className="text-white">time runs {bot.latency_ms || 23}ms</span>
+                        <span className="text-white">latency {bot.latency_ms || 23}ms</span>
                     </span>
                     <span className="flex items-center gap-1">
                         <span className="text-slate-600 uppercase font-black tracking-tighter">Strategy:</span>

@@ -10,6 +10,7 @@ import os
 import re
 import numpy as np
 import pandas as pd
+pd.set_option('future.no_silent_downcasting', True)
 
 STRATEGIES_DIR = os.path.join(os.path.dirname(__file__), "strategies")
 

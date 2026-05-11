@@ -676,7 +676,6 @@ export default function LivePage() {
                         {/* Live Chart & Signal Stream for selected bot */}
                         {selectedBot && (
                             <div className="space-y-6">
-                                <LiveChart bot={selectedBot} />
                                 
                                 <div className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
                                     <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
@@ -1075,31 +1074,9 @@ function BotCard({ bot, isSelected, onSelect, onStop, onDelete, strategies, onSw
                             <DetailRow label="Win Rate" value={`${(bot.win_rate * 100).toFixed(1)}%`} />
                         </div>
                     </div>
-                    <div className="h-40 w-full mt-4 bg-slate-950/50 rounded-xl border border-slate-800 p-2">
-                        {equitySnapshots.length > 1 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={equitySnapshots}>
-                                    <defs>
-                                        <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                    <XAxis dataKey="time" hide />
-                                    <YAxis hide domain={['auto', 'auto']} />
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', fontSize: '10px' }}
-                                    />
-                                    <Area type="monotone" dataKey="equity" stroke="#3b82f6" fillOpacity={1} fill="url(#colorEquity)" isAnimationActive={false} />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-slate-600 text-[10px]">
-                                <Activity size={20} className="mb-2 opacity-20" />
-                                No equity history yet
-                            </div>
-                        )}
+                    </div>
+                    <div className="w-full mt-4">
+                        <LiveChart bot={bot} />
                     </div>
                 </div>
             )}
